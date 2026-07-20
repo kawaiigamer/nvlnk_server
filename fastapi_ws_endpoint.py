@@ -4,8 +4,8 @@ from functools import wraps
 from flask import Flask, request, Response
 from werkzeug.exceptions import InternalServerError
 
-from server_description import get_wav_params, get_aes_params, get_system_info
-from server_audio import AsyncRandomAudioStream, WavAudio, AesGCM
+from server_description import get_wav_params, get_aes_params, get_wav_fsk2_params, get_system_info
+from server_audio import AsyncRandomAudioStream, WavAudio, AesGCM, WavAudioFSK2
 
 app = Flask(__name__)
 
@@ -28,13 +28,19 @@ def main_page():
 @app.route('/wav/random/stream')
 @internal_server_error_throwable
 def wav_random_stream():
-    return AsyncRandomAudioStream(wav=WavAudio(**get_wav_params(request)), crypter=None).start()
+    return AsyncRandomAudioStream(wav=WavAudio(**get_wav_params(request.args)), crypter=None).start()
+
+
+@app.route('/wav/random/FSK2/stream')
+@internal_server_error_throwable
+def wav_random_fsk2_stream():
+    return AsyncRandomAudioStream(wav=WavAudioFSK2(**get_wav_fsk2_params(request.args)), crypter=None).start()
 
 
 @app.route('/wav/random/aes256/stream')
 @internal_server_error_throwable
 def wav_random_aes256_stream():
-    return AsyncRandomAudioStream(wav=WavAudio(**get_wav_params(request)), crypter=AesGCM(**get_aes_params(request))).start()
+    return AsyncRandomAudioStream(wav=WavAudio(**get_wav_params(request.args)), crypter=AesGCM(**get_aes_params(request.args))).start()
 
 
 if __name__ == '__main__':
