@@ -4,7 +4,7 @@ Http endpoint for default WS.
 
 ## Usage
 ```
-python3 fastapi_ws_endpoint.py [-h] [-p PORT] [-d DEBUG]
+python3 -m ws_endpoint.py [-h] [-p PORT] [-d DEBUG]
 
 ws-http-endpoint
 

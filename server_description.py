@@ -1,7 +1,9 @@
 import json
 from datetime import datetime
 from dataclasses import dataclass, field
-from typing import Union, List, Dict, Self, Tuple, Optional, Any
+from typing import Union, List, Dict, Self, Optional, Any
+
+import numpy as np
 
 _TOX_ID = "E7B2DD4DBF47295A58F372F5FA4A88CB655999D23ABE5415CF00E7400551A901A15477F334F2"
 _TIME_FMT = "%d.%m.%y %H:%M:%S"
@@ -12,6 +14,8 @@ class __DataclassEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, OrderedDataclass):
             return obj.to_dict()
+        if isinstance(obj, np.integer):
+            return int(obj)
         return super().default(obj)
 
 
@@ -26,7 +30,7 @@ class OrderedDataclass:
 class Param(OrderedDataclass):
     name: str
     fullname: str
-    default_value: Union[str, int]
+    default_value: Union[str, int, np.dtype]
     description: str
 
     def to_dict(self):
@@ -41,9 +45,11 @@ class EndpointPart(OrderedDataclass):
     presets: Dict[str, Dict[str, int]] = field(default_factory=dict)
 
     def to_dict(self):
-        return {"type": "endpoint", "description": self.description,
-                "method": self.method, "params": [p.to_dict() for p in self.params],
-                "presets": self.presets}
+        j = {"type": "endpoint", "description": self.description,
+                "method": self.method, "params": [p.to_dict() for p in self.params]}
+        if self.presets:
+            j["presets"] = self.presets
+        return j
 
 
 @dataclass
@@ -83,21 +89,21 @@ class Main(OrderedDataclass):
 
 
 
-_wav_params_descr: List[Param] = [Param("ch", "channels", 2, "Channels count"), Param("depth", "channel_bit_depth", 16, "Channel depth in bits count"), Param("freq", "samples_rate", 44100, "Samples Rate")]
-_wav_fsk_params_descr: List[Param] = [Param("sps", "samples_per_full_vs_symbol", 196, "Samples count in seq of value+sync symbols"), Param("vsps", "samples_per_value_symbol", 68, "Samples count in seq of value symbol")]
+_wav_params_descr: List[Param] = [Param("ch", "channels", 2, "Channels count"), Param("depth", "channel_bit_depth", 16, "Channel depth in bits count"), Param("freq", "samples_rate", 44100, "Samples Rate"), Param("dt", "data_type", np.int16(0), "Type for low level operations with samples")]
+_wav_fsk_params_descr: List[Param] = [Param("fssc", "full_vs_symbol_samples_count", 196, "Samples count in seq of value+sync symbols"), Param("vssc", "value_symbol_samples_count", 68, "Samples count in seq of value symbol")]
 _aes_params_descr: List[Param] = [Param("key", "key_str", _AES256_KEY, "256 bits key"), Param("iv", "iv_length", 12, "Initialization Vector (IV) length in bytes"), Param("tag", "tag", "notag", "GCM mode Authentication Tag")]
-_presets = {"std44100_16n":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 44100, "samples_per_value_symbol": 64, "samples_per_full_vs_symbol": 180},     # 245
-            "std48000_16vl": {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "samples_per_value_symbol": 480, "samples_per_full_vs_symbol": 1200},   #40
-            "std48000_16l":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "samples_per_value_symbol": 192, "samples_per_full_vs_symbol": 400},    #120
-            "std48000_16n":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "samples_per_value_symbol": 108, "samples_per_full_vs_symbol": 240},    #200
-            "std48000_16f":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "samples_per_value_symbol": 56, "samples_per_full_vs_symbol": 150},     #320
-            "std48000_16vf": {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "samples_per_value_symbol": 32, "samples_per_full_vs_symbol": 96},      #500
-            "std96000_16vl": {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "samples_per_value_symbol": 720, "samples_per_full_vs_symbol": 1600},   #60
-            "std96000_16l":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "samples_per_value_symbol": 480, "samples_per_full_vs_symbol": 960},    #100
-            "std96000_16n":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "samples_per_value_symbol": 384, "samples_per_full_vs_symbol": 640},    #150
-            "std96000_16h":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "samples_per_value_symbol": 192, "samples_per_full_vs_symbol": 480},    #200
-            "std96000_16f":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "samples_per_value_symbol": 128, "samples_per_full_vs_symbol": 384},    #250
-            "std96000_16vf": {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "samples_per_value_symbol": 64, "samples_per_full_vs_symbol": 160},     #600
+_presets = {"std44100_16n":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 44100, "value_symbol_samples_count": 64, "full_vs_symbol_samples_count": 180},     #245
+            "std48000_16vl": {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "value_symbol_samples_count": 480, "full_vs_symbol_samples_count": 1200},   #40
+            "std48000_16l":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "value_symbol_samples_count": 192, "full_vs_symbol_samples_count": 400},    #120
+            "std48000_16n":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "value_symbol_samples_count": 108, "full_vs_symbol_samples_count": 240},    #200
+            "std48000_16f":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "value_symbol_samples_count": 56, "full_vs_symbol_samples_count": 150},     #320
+            "std48000_16vf": {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "value_symbol_samples_count": 32, "full_vs_symbol_samples_count": 96},      #500
+            "std96000_16vl": {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 720, "full_vs_symbol_samples_count": 1600},   #60
+            "std96000_16l":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 480, "full_vs_symbol_samples_count": 960},    #100
+            "std96000_16n":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 384, "full_vs_symbol_samples_count": 640},    #150
+            "std96000_16h":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 192, "full_vs_symbol_samples_count": 480},    #200
+            "std96000_16f":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 128, "full_vs_symbol_samples_count": 384},    #250
+            "std96000_16vf": {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 64, "full_vs_symbol_samples_count": 160},     #600
             }
 _endpoints = {"wav": RoutePart("Uncompressed audio",
                                {
