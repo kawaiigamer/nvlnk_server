@@ -2,6 +2,7 @@ import argparse
 
 from functools import wraps
 
+import numpy as np
 from flask import Flask, request, Response
 from werkzeug.exceptions import InternalServerError
 

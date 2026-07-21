@@ -89,7 +89,7 @@ class Main(OrderedDataclass):
 
 
 
-_wav_params_descr: List[Param] = [Param("ch", "channels", 2, "Channels count"), Param("depth", "channel_bit_depth", 16, "Channel depth in bits count"), Param("freq", "samples_rate", 44100, "Samples Rate"), Param("dt", "data_type", np.int16(0), "Type for low level operations with samples")]
+_wav_params_descr: List[Param] = [Param("ch", "channels", 2, "Channels count"), Param("depth", "channel_bit_depth", 16, "Channel depth in bits count"), Param("freq", "samples_rate", 44100, "Samples Rate"), Param("dt", "data_type", "int16", "Type for low level operations with samples")]
 _wav_fsk_params_descr: List[Param] = [Param("fssc", "full_vs_symbol_samples_count", 196, "Samples count in seq of value+sync symbols"), Param("vssc", "value_symbol_samples_count", 68, "Samples count in seq of value symbol")]
 _aes_params_descr: List[Param] = [Param("key", "key_str", _AES256_KEY, "256 bits key"), Param("iv", "iv_length", 12, "Initialization Vector (IV) length in bytes"), Param("tag", "tag", "notag", "GCM mode Authentication Tag")]
 _presets = {"std44100_16n":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 44100, "value_symbol_samples_count": 64, "full_vs_symbol_samples_count": 180},     #245

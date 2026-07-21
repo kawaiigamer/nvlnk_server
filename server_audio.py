@@ -31,13 +31,16 @@ class AesGCM:
 
 
 class WavAudio:
-    def __init__(self, channels: int, channel_bit_depth: int, samples_rate: int, data_type: np.dtype = np.int16):
+    def __init__(self, channels: int, channel_bit_depth: int, samples_rate: int, data_type: str = "int16"):
         self.channels = channels
         self.channel_bit_depth = channel_bit_depth
         self.samples_rate = samples_rate
         self.sample_length = self.channels * int(self.channel_bit_depth // 8)
         self.frame_length = self.sample_length * self.samples_rate
-        self.data_type: np.dtype = data_type
+        try:
+            self.data_type: np.dtype = np.dtype(data_type).type
+        except TypeError:
+            self.data_type: np.dtype = np.dtype("int16").type
         self.data_type_length: int = np.dtype(self.data_type).itemsize
 
     def create_wav_header(self) -> bytes:
@@ -178,18 +181,10 @@ class AsyncRandomAudioStream:
             yield self.wav.create_random_frame()
 
     def __random_fsk_frames_gen(self) -> Generator[bytes, None, None]:
-        print(self.wav.to_json())
-        s=0
         while True:
             bits: np.ndarray = self.wav.create_random_bits(self.wav.frame_full_symbols_count)
             fsk_frame: np.ndarray = self.wav.create_fsk_frame(bits)
-
-            print(f"[seq={s}]Generated {len(bits)} random bits for next frame: {self.wav.ndarray_bits_to_str(bits)}")
-            print(f"[seq={s}]Fsk frame(with sync symbols): {self.wav.fsk_frame_to_str(fsk_frame, True)}")
-            print(f"[seq={s}]Fsk frame(without sync symbols): {self.wav.fsk_frame_to_str(fsk_frame, False)}")
-
             yield fsk_frame.tobytes()
-            s +=1
 
     async def __stream_generator(self):
         yield self.wav.create_wav_header()
