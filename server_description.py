@@ -16,6 +16,8 @@ class __DataclassEncoder(json.JSONEncoder):
             return obj.to_dict()
         if isinstance(obj, np.integer):
             return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
         return super().default(obj)
 
 
@@ -89,7 +91,9 @@ class Main(OrderedDataclass):
 
 
 
-_wav_params_descr: List[Param] = [Param("ch", "channels", 2, "Channels count"), Param("depth", "channel_bit_depth", 16, "Channel depth in bits count"), Param("freq", "samples_rate", 44100, "Samples Rate"), Param("dt", "data_type", "int16", "Type for low level operations with samples")]
+_wav_params_descr: List[Param] = [Param("ch", "channels", 2, "Channels count"), Param("depth", "channel_bit_depth", 16, "Channel depth in bits count"),
+                                  Param("freq", "samples_rate", 44100, "Samples Rate"), Param("dt", "data_type", "int16", "Type for low level operations with samples")]
+_wav_duration_params_descr = [Param("t", "duration", 0, "Duration of stream in seconds, use 0 for unlimited stream")]
 _wav_fsk_params_descr: List[Param] = [Param("fssc", "full_vs_symbol_samples_count", 196, "Samples count in seq of value+sync symbols"), Param("vssc", "value_symbol_samples_count", 68, "Samples count in seq of value symbol")]
 _aes_params_descr: List[Param] = [Param("key", "key_str", _AES256_KEY, "256 bits key"), Param("iv", "iv_length", 12, "Initialization Vector (IV) length in bytes"), Param("tag", "tag", "notag", "GCM mode Authentication Tag")]
 _presets = {"std44100_16n":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 44100, "value_symbol_samples_count": 64, "full_vs_symbol_samples_count": 180},     #245
@@ -108,12 +112,12 @@ _presets = {"std44100_16n":  {"channels": 2, "channel_bit_depth": 16, "samples_r
 _endpoints = {"wav": RoutePart("Uncompressed audio",
                                {
                                 "random": RoutePart("Random outgoing data", {
-                                                                            "stream": EndpointPart("Infinite raw audio/wav stream", "GET", _wav_params_descr),
+                                                                            "stream": EndpointPart("Raw audio/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr),
                                                                             "aes256": RoutePart("AES-256+GCM encoding", {
-                                                                                                                        "stream": EndpointPart("Infinite AES-256+GCM encoded audio/wav stream", "GET", _wav_params_descr + _aes_params_descr)
+                                                                                                                        "stream": EndpointPart("AES-256+GCM encoded audio/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr + _aes_params_descr)
                                                                                                                         }),
                                                                             "FSK2": RoutePart("FSK2 modulation", {
-                                                                                                                 "stream": EndpointPart("Infinite FSK2 audio/wav stream", "GET", _wav_params_descr + _wav_fsk_params_descr, _presets),
+                                                                                                                 "stream": EndpointPart("FSK2 audio/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr + _wav_fsk_params_descr, _presets),
                                                                                                                  }),
                                                                             }),
                                 }),
@@ -126,12 +130,14 @@ def __get_params_from_request(args, params_descr: List[Param]) -> Optional[Dict[
 
 
 def get_wav_params(args) -> Optional[Dict[str, Any]]:
-    return __get_params_from_request(args, _wav_params_descr)
+    return __get_params_from_request(args, _wav_params_descr + _wav_duration_params_descr)
 
 
 def get_wav_fsk2_params(args) -> Optional[Dict[str, Any]]:
     if preset := _presets.get(args.get("preset")):
-        return preset
+        p = preset.copy()
+        p.update(__get_params_from_request(args, _wav_duration_params_descr))
+        return p
     return __get_params_from_request(args, _wav_params_descr + _wav_fsk_params_descr)
 
 

@@ -2,7 +2,8 @@ import asyncio
 import os
 import random
 import struct
-from typing import Optional, Generator
+from itertools import count
+from typing import Optional, Generator, AsyncGenerator, Union
 
 import numpy as np
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -31,20 +32,22 @@ class AesGCM:
 
 
 class WavAudio:
-    def __init__(self, channels: int, channel_bit_depth: int, samples_rate: int, data_type: str = "int16"):
+    def __init__(self, channels: int, channel_bit_depth: int, samples_rate: int, data_type: str = "int16", duration: int = 0):
         self.channels = channels
         self.channel_bit_depth = channel_bit_depth
         self.samples_rate = samples_rate
         self.sample_length = self.channels * int(self.channel_bit_depth // 8)
         self.frame_length = self.sample_length * self.samples_rate
         try:
-            self.data_type: np.dtype = np.dtype(data_type).type
+            self.data_type: Union[np.integer, np.floating] = np.dtype(data_type).type
         except TypeError:
-            self.data_type: np.dtype = np.dtype("int16").type
+            self.data_type: Union[np.integer, np.floating] = np.dtype("int16").type
         self.data_type_length: int = np.dtype(self.data_type).itemsize
+        self.duration = duration
 
     def create_wav_header(self) -> bytes:
-        riff_chunk_size = 36
+        data_size: int = self.duration * self.frame_length
+        riff_chunk_size = 36 + data_size
         header = struct.pack(
             '<4sI4s4sIHHIIHH4sI',
             b'RIFF',  # ChunkID
@@ -59,7 +62,7 @@ class WavAudio:
             self.sample_length,  # BlockAlign
             self.channel_bit_depth,  # BitsPerSample
             b'data',  # Subchunk2ID
-            0  # Subchunk2Size 0 if the data size is unknown or streaming
+            data_size  # Subchunk2Size, use 0 if the data size is unknown or streaming
         )
         return header
 
@@ -70,7 +73,7 @@ class WavAudio:
         return random.randbytes(self.frame_length)
 
     def to_json(self):
-        return {"channels": self.channels, "channel_bit_depth": self.channel_bit_depth, "samples_rate": self.samples_rate,
+        return {"channels": self.channels, "channel_bit_depth": self.channel_bit_depth, "samples_rate": self.samples_rate, "duration": self.duration,
                 "sample_length": self.sample_length, "frame_length": self.frame_length, "data_type": self.data_type, "data_type_length": self.data_type_length}
 
 
@@ -186,13 +189,18 @@ class AsyncRandomAudioStream:
             fsk_frame: np.ndarray = self.wav.create_fsk_frame(bits)
             yield fsk_frame.tobytes()
 
-    async def __stream_generator(self):
+    async def __stream_generator(self) -> AsyncGenerator[bytes, None]:
         yield self.wav.create_wav_header()
-        while True:
-            yield next(self.sample_gen)
+        for i in count(start=1):
+            try:
+                yield next(self.sample_gen)
+            except StopIteration:
+                return
+            if i == self.wav.duration:
+                return
             await asyncio.sleep(self.frames_delay)
 
-    def __sync_generator_wrapper(self):
+    def __sync_generator_wrapper(self) -> Generator[bytes, None, None]:
         loop = asyncio.new_event_loop()
         stream_gen = self.__stream_generator()
         try:
