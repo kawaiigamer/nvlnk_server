@@ -5,8 +5,8 @@ from functools import wraps
 from flask import Flask, request, Response
 from werkzeug.exceptions import InternalServerError
 
-from server_description import get_wav_params, get_aes_params, get_wav_fsk2_params, get_system_info
-from server_audio import AsyncRandomAudioStream, WavAudio, AesGCM, WavAudioFSK2
+from server_description import get_wav_params, get_aes_params, get_wav_fsk_params, get_system_info
+from server_audio import AsyncRandomAudioStream, WavAudio, AesGCM, WavAudioFSK
 
 app = Flask(__name__)
 
@@ -32,10 +32,10 @@ def wav_random_stream():
     return AsyncRandomAudioStream(wav=WavAudio(**get_wav_params(request.args)), crypter=None).start()
 
 
-@app.route('/wav/random/FSK2/stream')
+@app.route('/wav/random/FSK/stream')
 @internal_server_error_throwable
-def wav_random_fsk2_stream():
-    return AsyncRandomAudioStream(wav=WavAudioFSK2(**get_wav_fsk2_params(request.args)), crypter=None).start()
+def wav_random_fsk_stream():
+    return AsyncRandomAudioStream(wav=WavAudioFSK(**get_wav_fsk_params(request.args)), crypter=None, debug=True).start()
 
 
 @app.route('/wav/random/aes256/stream')

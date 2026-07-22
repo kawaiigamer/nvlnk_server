@@ -95,29 +95,33 @@ _wav_params_descr: List[Param] = [Param("ch", "channels", 2, "Channels count"), 
                                   Param("freq", "samples_rate", 44100, "Samples Rate"), Param("dt", "data_type", "int16", "Type for low level operations with samples")]
 _wav_duration_params_descr = [Param("t", "duration", 0, "Duration of stream in seconds, use 0 for unlimited stream")]
 _wav_fsk_params_descr: List[Param] = [Param("fssc", "full_vs_symbol_samples_count", 196, "Samples count in seq of value+sync symbols"), Param("vssc", "value_symbol_samples_count", 68, "Samples count in seq of value symbol")]
+_wav_fsk_level_params_descr: List[Param] = [Param("lv", "fsk_level", 2, "Level of FSK(bits per one value symbol), ex: 2(1 bit), 4(2 bits), 8(3 bits), 16(4 bits), 32(5 bits), 64(6 bits), 128(7 bits), 256(8 bits)")]
 _aes_params_descr: List[Param] = [Param("key", "key_str", _AES256_KEY, "256 bits key"), Param("iv", "iv_length", 12, "Initialization Vector (IV) length in bytes"), Param("tag", "tag", "notag", "GCM mode Authentication Tag")]
+_wav_additional_params_descr = [Param("info_only", "info_only", "false", "Get json info instead of of stream")]
 _presets = {"std44100_16n":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 44100, "value_symbol_samples_count": 64, "full_vs_symbol_samples_count": 180},     #245
             "std48000_16vl": {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "value_symbol_samples_count": 480, "full_vs_symbol_samples_count": 1200},   #40
             "std48000_16l":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "value_symbol_samples_count": 192, "full_vs_symbol_samples_count": 400},    #120
             "std48000_16n":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "value_symbol_samples_count": 108, "full_vs_symbol_samples_count": 240},    #200
             "std48000_16f":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "value_symbol_samples_count": 56, "full_vs_symbol_samples_count": 150},     #320
             "std48000_16vf": {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "value_symbol_samples_count": 32, "full_vs_symbol_samples_count": 96},      #500
+            "std48000_32vf": {"channels": 2, "channel_bit_depth": 32, "data_type": "int32", "samples_rate": 48000, "value_symbol_samples_count": 32, "full_vs_symbol_samples_count": 96},
             "std96000_16vl": {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 720, "full_vs_symbol_samples_count": 1600},   #60
             "std96000_16l":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 480, "full_vs_symbol_samples_count": 960},    #100
             "std96000_16n":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 384, "full_vs_symbol_samples_count": 640},    #150
             "std96000_16h":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 192, "full_vs_symbol_samples_count": 480},    #200
             "std96000_16f":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 128, "full_vs_symbol_samples_count": 384},    #250
             "std96000_16vf": {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 64, "full_vs_symbol_samples_count": 160},     #600
+            "std96000_32vf": {"channels": 2, "channel_bit_depth": 32, "data_type": "int32", "samples_rate": 96000, "value_symbol_samples_count": 64, "full_vs_symbol_samples_count": 160},
             }
 _endpoints = {"wav": RoutePart("Uncompressed audio",
                                {
                                 "random": RoutePart("Random outgoing data", {
-                                                                            "stream": EndpointPart("Raw audio/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr),
+                                                                            "stream": EndpointPart("Raw audio/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr + _wav_additional_params_descr),
                                                                             "aes256": RoutePart("AES-256+GCM encoding", {
-                                                                                                                        "stream": EndpointPart("AES-256+GCM encoded audio/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr + _aes_params_descr)
+                                                                                                                        "stream": EndpointPart("AES-256+GCM encoded audio/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr + _wav_additional_params_descr + _aes_params_descr)
                                                                                                                         }),
-                                                                            "FSK2": RoutePart("FSK2 modulation", {
-                                                                                                                 "stream": EndpointPart("FSK2 audio/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr + _wav_fsk_params_descr, _presets),
+                                                                            "FSK": RoutePart("FSK(Frequency Shift Keying) modulation", {
+                                                                                                                 "stream": EndpointPart("FSK audio/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr + _wav_additional_params_descr +_wav_fsk_params_descr + _wav_fsk_level_params_descr, _presets),
                                                                                                                  }),
                                                                             }),
                                 }),
@@ -133,12 +137,12 @@ def get_wav_params(args) -> Optional[Dict[str, Any]]:
     return __get_params_from_request(args, _wav_params_descr + _wav_duration_params_descr)
 
 
-def get_wav_fsk2_params(args) -> Optional[Dict[str, Any]]:
+def get_wav_fsk_params(args) -> Optional[Dict[str, Any]]:
     if preset := _presets.get(args.get("preset")):
         p = preset.copy()
-        p.update(__get_params_from_request(args, _wav_duration_params_descr))
+        p.update(__get_params_from_request(args, _wav_duration_params_descr + _wav_fsk_level_params_descr + _wav_additional_params_descr))
         return p
-    return __get_params_from_request(args, _wav_params_descr + _wav_fsk_params_descr)
+    return __get_params_from_request(args, _wav_params_descr + _wav_duration_params_descr + _wav_fsk_params_descr + _wav_fsk_level_params_descr + _wav_additional_params_descr)
 
 
 def get_aes_params(args) -> Optional[Dict[str, Any]]:
