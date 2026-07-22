@@ -7,7 +7,7 @@ import random
 import string
 import struct
 from itertools import count
-from typing import Optional, Generator, AsyncGenerator, Union, Dict, List, Iterable, Tuple
+from typing import Optional, Generator, AsyncGenerator, Union, List, Iterable, Tuple
 
 import numpy as np
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -99,13 +99,13 @@ class WavAudioFSK(WavAudio):
 
     _supported_fsk_levels = (2, 4, 8, 16, 32, 64, 128, 256)
     _BASE256_CHARSET = (
-                         ("0123456789" "ABCDEFGHIJKLMNOPQRSTUVWXYZ"  "ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩ" "БЁДЖИЙЛПЦЧШЩЪЫЬЭЮЯЭЄЇ") +
-                         ("☰☱☲☳☴☵☶☷" "ႠႡႢႣႤႥႦႧႨႩႪႫႬႭႮႯႰႱႲႳႴႵႶႷႸႹႺႻႼႽႾႿჀჁჂჃჄჅ" "⼚⼜⼝⼞⼟⼠⼢⼣⼤⼥⼦⼧⼨⼩⼪⼫⼬⼭⼮⼯⼰⼱⼲⼳⼴⼵⼶⼷⼸⼹⼺⼻⼼⼄⼈") +
-                         ("ᐁᐃᐅᐊᐯᐱᐸᑁᑌᑎᑐᑕᗄᗐᗑᗜᗝᗳⴵ" "ꡀꡁꡂꡃꡄꡅꡆꡇꡈꡉꡊꡋꡌꡍꡎꡏꡐꡑꡒꡓꡔꡕꡖꡗꡘꡙꡚꡛꡜꡝꡞꡟꡠꡡꡢꡣꡤꡥꡦꡧꡨꡩꡪꡫꡬꡭꡮꡯꡰꡱꡲꡳ꡴꡵" "ᾸỸẐṼẌẄṦ") +
-                         ("䷀䷒䷓䷚䷾䷁䷂䷄䷅䷕䷆䷇∐∑")  #"∩∪∫∏∬∭∮∯∰∱∲∳" "䷈䷉䷊䷋䷌䷍䷎䷏䷐䷑䷔䷘䷙䷛䷜䷝䷞䷟䷠䷡䷢䷣䷤䷥䷦䷧䷪䷫䷬䷭䷮䷯䷰䷱䷲䷳䷴䷵䷶䷷䷸䷹䷺䷻䷼䷽䷿")
+                         ("0123456789" "ABCDEFGHIJKLMNOPQRSTUVWXYZ" "ĎĚĤĨĴŎŤŪŘŇĜЃꚧᾸỸẐṼẌẄṦ" "Ꜩ₽₳₱€₦₩" "☰☱☲☳☴☵☶☷" "ΔΘΛΞΨΩ") +
+                         ("БЁДЖИЙЛПЦЧШЩЪЫЬЭЮЯЭЄЇ" "ႠႡႢႣႤႥႦႧႨႩႪႫႬႭႮႯႰႱႲႳႴႵႶႷႸႹႺႻႼႽႾႿჀჁჂჃჄჅ" "⼚⼜⼝⼞⼟⼠⼢⼣⼤⼥⼦⼧⼨⼩⼪⼫⼬⼭⼮⼯⼰⼱⼲⼳⼴⼵⼶⼷⼸⼹⼺⼻⼼⼄⼈") +
+                         ("ᐁᐃᐅᐊᐯᐱᐸᑁᑌᑎᑐᑕᗄᗐᗑᗜᗝᗳⴵ" "ꡀꡁꡂꡃꡄꡅꡆꡇꡈꡉꡊꡋꡌꡍꡎꡏꡐꡑꡒꡓꡔꡕꡖꡗꡘꡙꡚꡛꡜꡝꡞꡟꡠꡡꡢꡣꡤꡥꡦꡧꡨꡩꡪꡫꡬꡭꡮꡯꡰꡱꡲꡳ꡴꡵" "䷀䷒䷓䷚䷾䷁䷂䷄䷅䷕䷆䷇")
+                           #"∩∪∫∏∬∭∮∯∰∱∲∳" "䷈䷉䷊䷋䷌䷍䷎䷏䷐䷑䷔䷘䷙䷛䷜䷝䷞䷟䷠䷡䷢䷣䷤䷥䷦䷧䷪䷫䷬䷭䷮䷯䷰䷱䷲䷳䷴䷵䷶䷷䷸䷹䷺䷻䷼䷽䷿")
                         )
 
-    def _chr(self, no: int) -> str:
+    def _base256_chr(self, no: int) -> str:
         return self._BASE256_CHARSET[no]
 
     def _create_value_symbols(self) -> Tuple[List[int], int]:   # TODO: fix bug incorrect max value(+1) with 64bit types
@@ -141,7 +141,7 @@ class WavAudioFSK(WavAudio):
         self.full_symbol_duration_sec = self.full_vs_symbol_samples_count / self.samples_rate
         self.sync_char_in_str = '█'
         self.error_char_in_str = '❌'
-
+        self.real_speed_bytes_per_sec = (self.frame_full_symbols_count * self.bits_in_value_symbol) / 8
 
     def _bits_seq_to_int(self, seq: Iterable[int]) -> int:
         return int("".join(str(bit) for bit in seq), 2)
@@ -165,7 +165,7 @@ class WavAudioFSK(WavAudio):
         result = list(self.error_char_in_str *  rl)
         counter = 0
         for seq in itertools.batched(nparray_bits, self.bits_in_value_symbol):
-            result[counter] = self._chr(self._bits_seq_to_int(seq))
+            result[counter] = self._base256_chr(self._bits_seq_to_int(seq))
             counter += 1
         return "".join(result)
 
@@ -185,7 +185,7 @@ class WavAudioFSK(WavAudio):
         while counter < len(frame):
             try:
                 if vs_mode:
-                    result[res_index] = self._chr(self.value_symbols.index(frame[counter]))
+                    result[res_index] = self._base256_chr(self.value_symbols.index(frame[counter]))
                     res_index += 1
                 else:
                     result[res_index:res_index + self.result_str_index_shift] = self.bits_converter_format.format(self.value_symbols.index(frame[counter]))
@@ -220,7 +220,7 @@ class WavAudioFSK(WavAudio):
     def to_json(self):
         j = super().to_json()
         j.update({ "fsk_level": self.fsk_level, "full_vs_symbol_samples_count": self.full_vs_symbol_samples_count, "value_symbol_samples_count": self.value_symbol_samples_count,
-                   "sync_symbol_samples_count": self.sync_symbol_samples_count, "frame_full_symbols_count": self.frame_full_symbols_count, "bits_in_value_symbol": self.bits_in_value_symbol,
+                   "sync_symbol_samples_count": self.sync_symbol_samples_count, "frame_full_symbols_count": self.frame_full_symbols_count, "bits_in_value_symbol": self.bits_in_value_symbol, "real_speed_bytes_per_sec": self.real_speed_bytes_per_sec,
                    "sync_char_in_str": self.sync_char_in_str, "error_char_in_str": self.error_char_in_str, "value_symbols_seq_length": self.value_symbols_seq_length, "sync_symbols_seq_length": self.sync_symbols_seq_length,
                    "result_str_index_shift": self.result_str_index_shift, "value_symbol_duration_sec": self.value_symbol_duration_sec, "sync_symbol_duration_sec": self.sync_symbol_duration_sec,
                    "full_symbol_duration_sec": self.full_symbol_duration_sec, "base256_charset": self._BASE256_CHARSET, "value_symbols": self.value_symbols, "sync_symbol": self.sync_symbol,
@@ -309,5 +309,5 @@ class AsyncRandomAudioStream:
         if self.wav.info_only:
             j = {"stream_uuid": self.stream_uuid}
             j.update(self.wav.to_json())
-            return Response(json.dumps(j, indent=4, default=str, ensure_ascii=False), mimetype='application/json') #json.dumps(_main, cls=__DataclassEncoder, indent=4)
+            return Response(json.dumps(j, indent=4, default=str, ensure_ascii=False), mimetype='application/json')
         return Response(self.__sync_generator_wrapper(), mimetype='audio/wav')
