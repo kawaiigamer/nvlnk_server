@@ -130,19 +130,22 @@ _fsk_presets = {"std44100_16n":  {"channels": 2, "channel_bit_depth": 16, "sampl
                 }
 _endpoints = {"wav": RoutePart("Uncompressed audio",
                                {
-                                "random": RoutePart("Random outgoing data", {
+                                "random": RoutePart("Streams using random data as source", {
                                                                             "stream": EndpointPart("Raw audio/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr + _wav_additional_params_descr),
-                                                                            "aes256": RoutePart("AES-256+GCM encoding", {
-                                                                                                                        "stream": EndpointPart("AES-256+GCM encoded audio/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr + _wav_additional_params_descr + _aes_params_descr)
+                                                                            "aes256": RoutePart("AES-256(GCM/CBC) encoding", {
+                                                                                                                        "stream": EndpointPart("AES-256(GCM/CBC) encoded audio/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr + _wav_additional_params_descr + _aes_params_descr)
                                                                                                                         }),
-                                                                            "N-FSK": RoutePart("FSK(Frequency Shift Keying) modulation", {
-                                                                                                                 "stream": EndpointPart("FSK audio/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr + _wav_additional_params_descr + _wav_fsk_params_descr + _wav_fsk_level_params_descr, presets=_fsk_presets),
+                                                                            "N-FSK": RoutePart("N-FSK(Frequency Shift Keying) modulation", {
+                                                                                                                 "stream": EndpointPart("N-FSK audio/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr + _wav_additional_params_descr + _wav_fsk_params_descr + _wav_fsk_level_params_descr, presets=_fsk_presets),
+                                                                                                                 }),
+                                                                            "aes256_N-FSK": RoutePart("AES-256(GCM/CBC)+N-FSK(Frequency Shift Keying) modulation", {
+                                                                                                                 "stream": EndpointPart("AES-256(GCM/CBC)+N-FSK audio/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr + _wav_additional_params_descr + _wav_fsk_params_descr + _wav_fsk_level_params_descr + _aes_params_descr),
                                                                                                                  }),
                                                                             },),
-                                "text": RoutePart("Text to AES+audio encrypt/decrypt utils", {
-                                                                            "aes256_N-FSK": RoutePart("AES-256+GCM encoding", {
-                                                                                                                        "crypter": EndpointPart("FSK audio/wav crypter(plain text -> bytes -> AES-256 -> bytes -> bits -> wav header + frames[each frame constants any value symbols, each value symbol codes some bits count(1-8)])", "GET, POST", _wav_params_descr + _wav_fsk_params_descr + _wav_fsk_level_params_descr + _aes_params_descr + _aes_text_params_descr, presets=_fsk_presets, post_params=_post_aes_text_params_descr),
-                                                                                                                        "decrypter": EndpointPart("FSK audio/wav decrypter(wav header + frames[each frame constants any value symbols, each value symbol codes some bits count(1-8)] -> frames -> "
+                                "text": RoutePart("Text to audio encrypt/decrypt utils", {
+                                                                            "aes256_N-FSK": RoutePart("Text to/from audio/wav encoding/decoding via AES-256(GCM/CBC)+N-FSK ", {
+                                                                                                                        "crypter": EndpointPart("Text to audio/wav AES-256(GCM/CBC)+N-FSK crypter(plain text -> bytes -> AES-256 -> bytes -> bits -> wav header + frames[each frame constants any value symbols, each value symbol codes some bits count(1-8)])", "GET, POST", _wav_params_descr + _wav_fsk_params_descr + _wav_fsk_level_params_descr + _aes_params_descr + _aes_text_params_descr, presets=_fsk_presets, post_params=_post_aes_text_params_descr),
+                                                                                                                        "decrypter": EndpointPart("Audio/wav file to text AES-256(GCM/CBC)+N-FSK decrypter(wav header + frames[each frame constants any value symbols, each value symbol codes some bits count(1-8)] -> frames -> "
                                                                                                                                                   "bytes -> value symbols -> bits -> bytes -> AES-256 -> bytes -> plain text)", "POST", _wav_fsk_params_descr + _wav_fsk_level_params_descr + _aes_params_descr + _aes_text_params_descr, post_params=_post_wav_file_params_descr),
                                                                                                                         }),
                                                                             },),
@@ -163,9 +166,10 @@ def get_wav_params(args) -> Optional[Dict[str, Any]]:
 
 def get_wav_fsk_params(args) -> Optional[Dict[str, Any]]:
     if preset := _fsk_presets.get(args.get("preset")):
-        p = preset.copy()
-        p.update(__get_params_from_request(args, _wav_duration_params_descr + _wav_fsk_level_params_descr + _wav_additional_params_descr))
-        return p
+        return {**preset, **__get_params_from_request(args, _wav_duration_params_descr + _wav_fsk_level_params_descr + _wav_additional_params_descr)}   #TODO: TEST
+        # p = preset.copy()
+        # p.update(__get_params_from_request(args, _wav_duration_params_descr + _wav_fsk_level_params_descr + _wav_additional_params_descr))
+        # return p
     return __get_params_from_request(args, _wav_params_descr + _wav_duration_params_descr + _wav_fsk_params_descr + _wav_fsk_level_params_descr + _wav_additional_params_descr)
 
 
@@ -174,4 +178,4 @@ def get_aes_params(args) -> Optional[Dict[str, Any]]:
 
 
 def get_system_info() -> str:
-    return json.dumps(_main, cls=__DataclassEncoder, indent=4, ensure_ascii= False)
+    return json.dumps(_main, cls=__DataclassEncoder, indent=4, ensure_ascii=False)

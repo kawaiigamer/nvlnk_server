@@ -9,7 +9,7 @@ import struct
 import io
 import wave
 from itertools import count
-from typing import Optional, Generator, AsyncGenerator, Union, List, Iterable, Tuple, Dict, Self
+from typing import Optional, Generator, AsyncGenerator, Union, List, Iterable, Tuple, Dict, Self, Callable
 
 import numpy as np
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -28,13 +28,16 @@ class AESBase:
 
     @property
     def additional_payload_length(self) -> int:
-        raise NotImplemented
+        return 0
 
     def encrypt(self, data: Union[bytes, str]) -> bytes:
         raise NotImplemented
 
     def decrypt(self, data: bytes) -> str:
         raise NotImplemented
+
+    def to_json(self):
+        return {"class": self.__class__.__name__, "key": self.key.hex().upper(), "iv_length": self.iv_length, "text_for_crypt": self.text, "additional_payload_length": self.additional_payload_length}
 
     @staticmethod
     def from_config(config: Dict[str, Union[str, int]]) -> Self:
@@ -64,6 +67,9 @@ class AESGCM(AESBase):
     def decrypt(self, data: bytes) -> str:
         return self._crypter.decrypt(data[:self.iv_length], data[self.iv_length + len(self._tag_bytes):], data[self.iv_length:self.iv_length + len(self._tag_bytes)]).decode('utf-8')
 
+    def to_json(self):
+        return {**super().to_json(), "tag": self._tag_bytes.hex().upper()}
+
 
 class AESCBC(AESBase):
     def __init__(self,  **kwargs):
@@ -75,7 +81,7 @@ class AESCBC(AESBase):
 
     def encrypt(self, data: Union[bytes, str]) -> bytes:
         if isinstance(data, str):
-            data = data.encode()
+            data = data.encode('utf-8')
         iv = os.urandom(self.iv_length)
         padder = padding.PKCS7(algorithms.AES.block_size).padder()
         padded_data = padder.update(data) + padder.finalize()
@@ -212,28 +218,19 @@ class WavAudioFSK(WavAudio):
     def create_random_bits_array(self, bits_length: int) -> np.ndarray:
         return np.random.randint(0, 2, size=bits_length)
 
-    def bits_array_to_01_str(self, nparray_bits: np.ndarray) -> str:
-        result = list(self.error_char_in_str * len(nparray_bits))
-        for i, b in enumerate(nparray_bits):
-            if b:
-                result[i] = '1'
-            else:
-                result[i] = '0'
-        return "".join(result)
-
-    def bits_array_to_vs_str(self, nparray_bits: np.ndarray) -> str:
-        rl, rl_mod = divmod(len(nparray_bits), self.bits_in_value_symbol)
+    def bits_array_to_str(self, bits: np.ndarray, vs_mode: bool = True) -> str:
+        rl, rl_mod = divmod(len(bits), self.bits_in_value_symbol if vs_mode else 1)
         if rl_mod:
             rl += rl_mod
-        result = list(self.error_char_in_str *  rl)
+        result = list(self.error_char_in_str * rl)
         counter = 0
-        for seq in itertools.batched(nparray_bits, self.bits_in_value_symbol):
+        for seq in itertools.batched(bits, self.bits_in_value_symbol if vs_mode else 1):
             result[counter] = self._base256_chr(self._bits_seq_to_int(seq))
             counter += 1
         return "".join(result)
 
-        def fsk_byte_frame_to_str(self, frame: bytes, add_sync_symbols: bool = False, vs_mode: bool = False) -> str:
-            return self.fsk_frame_to_str(np.frombuffer(frame, dtype=self.data_type), add_sync_symbols, vs_mode)
+    def fsk_byte_frame_to_str(self, frame: bytes, add_sync_symbols: bool = False, vs_mode: bool = False) -> str:
+       return self.fsk_frame_to_str(np.frombuffer(frame, dtype=self.data_type), add_sync_symbols, vs_mode)
 
     def fsk_frame_to_str(self, frame: np.ndarray, add_sync_symbols: bool = False, vs_mode: bool = False) -> str:
         if len(frame) != self.frame_length_in_data_type:
@@ -276,56 +273,76 @@ class WavAudioFSK(WavAudio):
                 frame[counter+i] = v_sym
             counter += self.value_symbols_seq_length
             for i in range(self.sync_symbols_seq_length):
-                frame[counter+i] = self.sync_symbol
+                frame[counter+i] = self.sync_symbol # TODO: bug if uses not int16
             counter += self.sync_symbols_seq_length
         return frame
 
     def str_to_bits_array(self, text: str) -> np.ndarray:
         return np.unpackbits(np.frombuffer(text.encode('utf-8'), dtype=np.uint8))
 
-    def bits_array_to_str(self, bits_array: np.ndarray) -> str:
-        return np.packbits(bits_array).tobytes().decode('utf-8')
-
     def bytes_to_bits_array(self, bytes_seq: bytes) -> np.ndarray:
         return np.unpackbits(np.frombuffer(bytes_seq, dtype=np.uint8))
 
     def to_json(self):
-        j = super().to_json()
-        j.update({ "fsk_level": self.fsk_level, "full_vs_symbol_samples_count": self.full_vs_symbol_samples_count, "value_symbol_samples_count": self.value_symbol_samples_count,
+        return {**super().to_json(), "fsk_level": self.fsk_level, "full_vs_symbol_samples_count": self.full_vs_symbol_samples_count, "value_symbol_samples_count": self.value_symbol_samples_count,
                    "sync_symbol_samples_count": self.sync_symbol_samples_count, "frame_full_symbols_count": self.frame_full_symbols_count, "bits_in_value_symbol": self.bits_in_value_symbol, "real_speed_bytes_per_sec": self.real_speed_bytes_per_sec,
                    "sync_char_in_str": self.sync_char_in_str, "error_char_in_str": self.error_char_in_str, "value_symbols_seq_length": self.value_symbols_seq_length, "sync_symbols_seq_length": self.sync_symbols_seq_length,
                    "result_str_index_shift": self.result_str_index_shift, "value_symbol_duration_sec": self.value_symbol_duration_sec, "sync_symbol_duration_sec": self.sync_symbol_duration_sec,
                    "full_symbol_duration_sec": self.full_symbol_duration_sec, "base256_charset": self._BASE256_CHARSET, "value_symbols": self.value_symbols, "sync_symbol": self.sync_symbol,
-                   "supported_fsk_levels": self._supported_fsk_levels, "supported_data_types": self._supported_data_types})
-        return j
+                   "supported_fsk_levels": self._supported_fsk_levels, "supported_data_types": self._supported_data_types}
+
+
+class SimpleLogger:
+    def __init__(self, id: str, wav: WavAudio, io: Callable[[str,...], None] = None):
+            self.id = id
+            self.wav = wav
+            self.io = io if io else lambda s: None
+
+    def msg(self, msg: str):
+        self.io(f"[{self.id}] {msg}")
+
+    def stream_msg(self, sec: int, direction: str, counted: int, counted_type: str, descr: str, charset_base: int, raw_msg: str):
+        self.msg(f"[sec={sec}] {direction} {counted} {counted_type} for next {descr}[charset_base={charset_base},length={len(raw_msg)}]: {raw_msg}")
+
+    def stream_msgs_block(self, i: int, bits: np.ndarray, fsk_frame: np.ndarray):
+        self.stream_msg(i, "Received", len(bits),  "bits", "frame", 2, self.wav.bits_array_to_str(bits, False))
+        self.stream_msg(i, "Received", len(bits), "bits", "frame", self.wav.fsk_level, self.wav.bits_array_to_str(bits))
+        self.stream_msg(i, "Yielding", len(fsk_frame), "bytes", "FSK frame(with sync symbols)", 2, self.wav.fsk_frame_to_str(fsk_frame, True))
+        self.stream_msg(i, "Yielding", len(fsk_frame), "bytes", "FSK frame(without sync symbols)", 2, self.wav.fsk_frame_to_str(fsk_frame, False))
+        self.stream_msg(i, "Yielding", len(fsk_frame), "bytes", "FSK frame(with sync symbols)", self.wav.fsk_level, self.wav.fsk_frame_to_str(fsk_frame, True, True))
+        self.stream_msg(i, "Yielding", len(fsk_frame), "bytes", "FSK frame(without sync symbols)", self.wav.fsk_level, self.wav.fsk_frame_to_str(fsk_frame, False, True))
+
+    def seq(self, data: Union[str, bytes], stay_len: int = 8, stay_at_end: bool = True) -> str:
+        l = len(data)
+        prefix = f"[Length={l}] "
+        if l < stay_len * 2:
+            return f"{prefix}{data}"
+        else:
+            return f"{prefix}{data[0:stay_len]}...{data[len(data) - stay_len:] if stay_at_end else ""}"
 
 
 class AsyncAudioStream:
-    def __init__(self, wav: WavAudio, crypter: Optional[AESBase], debug: bool = False):
+    def __init__(self, wav: WavAudio, crypter: Optional[AESBase], debug: bool = True):
         self.stream_uuid: str = ''.join(random.choices(string.hexdigits, k=8))
         self.wav = wav
         self.frames_delay = 1
         self.crypter = crypter
-        self.frames_count = 0
+        self.expected_frames_count = 0
+        self.logger = SimpleLogger(self.stream_uuid, io=print if debug else None, wav=self.wav)
         if crypter:
             self.frame_body_length = self.wav.frame_length - crypter.additional_payload_length
             if self.frame_body_length <= 0:
                 raise ValueError(f"Sample body length: {self.frame_body_length} must be bigger then: {crypter.additional_payload_length}")
             if crypter.text:
                 self.sample_gen = self.__text_aes_crypted_fsk_frames_gen()
+                next(self.sample_gen)
             else:
                 self.sample_gen = self.__random_aes_crypted_frames_gen()
         else:
             if isinstance(self.wav, WavAudioFSK):
-                if debug:
-                    self.sample_gen = self.__random_fsk_frames_gen_dbg()
-                else:
-                    self.sample_gen = self.__random_fsk_frames_gen()
+                self.sample_gen = self.__random_fsk_frames_gen()
             else:
                 self.sample_gen = self.__random_frames_gen()
-
-    def _debug_msg(self, sec: int, counted: int, counted_type: str, descr: str, charset_len: int, raw_msg: str):
-        print(f"[{self.stream_uuid}][sec={sec}] Generated {counted} {counted_type} for next {descr}[charset_len={charset_len},length={len(raw_msg)}]: {raw_msg}")
 
     def __padded_bits_gen(self, source_bits_array: np.ndarray, bits_per_iteration: int) -> Generator[np.ndarray, None, None]:
         source_bits_array_length = len(source_bits_array)
@@ -335,27 +352,30 @@ class AsyncAudioStream:
                 yield source_bits_array[counter:counter + bits_per_iteration]
                 counter += bits_per_iteration
             else:
-                # print(f"ret {source_bits_array_length - counter} < {per_frame}, source_bits_array_length: {source_bits_array_length}")
                 sub_array = source_bits_array[counter:]
-                #print(f"sub_array: {sub_array}, ends with {sub_array[-1]}, {len(sub_array)}")
-                # pad_val =
+                pad_bit = 0 if sub_array[-1] == 1 else 1
+                self.logger.msg(f"Padding last yielding bits seq with {bits_per_iteration-len(sub_array)} bits: {pad_bit}")
                 padded_array = np.pad(
                     sub_array,
                     pad_width=(0, bits_per_iteration - len(sub_array)),
                     mode='constant',
-                    constant_values=0 if sub_array[-1] == 1 else 1
+                    constant_values=pad_bit
                 )
                 counter += bits_per_iteration
-                # print(f"padded_array: {padded_array}, {len(padded_array)}")
                 yield padded_array
 
     def __text_aes_crypted_fsk_frames_gen(self) -> Generator[bytes, None, None]:
+        self.logger.msg(f"Received Plain Text: {self.logger.seq(self.crypter.text, 32)}, Using {self.crypter.__class__.__name__},  Additional AES bytes count: {self.crypter.additional_payload_length}...")
         encrypted_text_bytes: bytes = self.crypter.encrypt(self.crypter.text)
         encrypted_text_bits: np.ndarray = self.wav.bytes_to_bits_array(encrypted_text_bytes)
-        bits_as_full_symbols_in_frame: int = self.wav.frame_full_symbols_count*self.wav.bits_in_value_symbol   # TODO: additional
-        self.frames_count = math.ceil(len(encrypted_text_bits) / self.wav.frame_length * 8)
-        for padded_bits_per_frame in self.__padded_bits_gen(encrypted_text_bits, bits_as_full_symbols_in_frame):
+        bits_as_full_symbols_in_frame: int = self.wav.frame_full_symbols_count*self.wav.bits_in_value_symbol
+        self.expected_frames_count = math.ceil(len(encrypted_text_bits) / self.wav.frame_full_symbols_count / self.wav.bits_in_value_symbol)
+        self.logger.msg(f"AES crypted bytes: {self.logger.seq(encrypted_text_bytes)}, AES crypted bits: {self.logger.seq(encrypted_text_bits)}, "
+                        f"Bits in frame(as full symbols): {bits_as_full_symbols_in_frame}, Expected frames count: {self.expected_frames_count}")
+        yield
+        for i, padded_bits_per_frame in enumerate(self.__padded_bits_gen(encrypted_text_bits, bits_as_full_symbols_in_frame), 1):
             fsk_frame: np.ndarray = self.wav.create_fsk_frame(padded_bits_per_frame)
+            self.logger.stream_msgs_block(i, padded_bits_per_frame, fsk_frame)
             yield fsk_frame.tobytes()
 
     def __random_aes_crypted_frames_gen(self) -> Generator[bytes, None, None]:
@@ -367,30 +387,15 @@ class AsyncAudioStream:
             yield self.wav.create_random_frame()
 
     def __random_fsk_frames_gen(self) -> Generator[bytes, None, None]:
-        while True:
+        for i in count(start=1):
             bits: np.ndarray = self.wav.create_random_bits_array(self.wav.frame_full_symbols_count*self.wav.bits_in_value_symbol)
             fsk_frame: np.ndarray = self.wav.create_fsk_frame(bits)
+            self.logger.stream_msgs_block(i, bits, fsk_frame)
             yield fsk_frame.tobytes()
 
-    def __random_fsk_frames_gen_dbg(self) -> Generator[bytes, None, None]:
-        print(f"[{self.stream_uuid}] Stream initiated with config: {self.wav.to_json()}")
-        i = 0
-        while True:
-            bits: np.ndarray = self.wav.create_random_bits_array(self.wav.frame_full_symbols_count*self.wav.bits_in_value_symbol)
-            fsk_frame: np.ndarray = self.wav.create_fsk_frame(bits)
-
-            self._debug_msg(i, len(bits), "bits", "frame", 2, self.wav.bits_array_to_01_str(bits))
-            self._debug_msg(i, len(bits), "bits", "frame", self.wav.fsk_level, self.wav.bits_array_to_vs_str(bits))
-            self._debug_msg(i, len(fsk_frame), "bytes", "FSK frame(with sync symbols)", 2, self.wav.fsk_frame_to_str(fsk_frame, True))
-            self._debug_msg(i, len(fsk_frame), "bytes", "FSK frame(without sync symbols)", 2, self.wav.fsk_frame_to_str(fsk_frame, False))
-            self._debug_msg(i, len(fsk_frame), "bytes", "FSK frame(with sync symbols)", self.wav.fsk_level, self.wav.fsk_frame_to_str(fsk_frame, True, True))
-            self._debug_msg(i, len(fsk_frame), "bytes", "FSK frame(without sync symbols)", self.wav.fsk_level, self.wav.fsk_frame_to_str(fsk_frame, False, True))
-
-            yield fsk_frame.tobytes()
-            i += 1
-
-    async def __stream_generator(self) -> AsyncGenerator[bytes, None]:
-        yield self.wav.create_wav_header(self.frames_count)
+    async def __async_stream_generator(self) -> AsyncGenerator[bytes, None]:
+        yield self.wav.create_wav_header(self.expected_frames_count)
+        self.logger.msg(f"Stream initiated with config: {self.to_json()}")
         for i in count(start=1):
             try:
                 yield next(self.sample_gen)
@@ -402,7 +407,7 @@ class AsyncAudioStream:
 
     def __sync_generator_wrapper(self) -> Generator[bytes, None, None]:
         loop = asyncio.new_event_loop()
-        stream_gen = self.__stream_generator()
+        stream_gen = self.__async_stream_generator()
         try:
             while True:
                 try:
@@ -423,9 +428,11 @@ class AsyncAudioStream:
 
         return Response("nothing", mimetype='plain/text')
 
+    def to_json(self):
+        return {"stream_uuid": self.stream_uuid, "expected_frames_count": self.expected_frames_count,
+             "wav": self.wav.to_json(), "crypter": self.crypter.to_json()}
+
     def start(self) -> Response:
         if self.wav.info_only:
-            j = {"stream_uuid": self.stream_uuid}
-            j.update(self.wav.to_json())
-            return Response(json.dumps(j, indent=4, default=str, ensure_ascii=False), mimetype='application/json')
+            return Response(json.dumps(self.to_json(), indent=4, default=str, ensure_ascii=False), mimetype='application/json')
         return Response(self.__sync_generator_wrapper(), mimetype='audio/wav')
