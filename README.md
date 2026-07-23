@@ -1,8 +1,10 @@
 # ws-http-endpoint
+___
 
-Http endpoint for default WS.
+Custom Http endpoint for default WS with external IP.
 
 ## Usage
+___
 ```
 python3 -m ws_endpoint.py [-h] [-p PORT] [-d DEBUG]
 
@@ -13,9 +15,21 @@ options:
   -p PORT, --port PORT      port(default=60600)
   -d DEBUG, --debug DEBUG   enable debug mode(default=True)
 ```
-## Get runtime status & services endpoints information
+## Getting runtime status & all services information with endpoints + parameters description and presets (json)
+___
 
 ```
 curl -X GET http://{IP}:{PORT}/
 ```
+## TODO
+___
+### Features
+- Dynamic FSK generation(decryption already supported).
+- Different data for different channels.
+- Detecting symbols by intervals, but not by single values while decryption.
+### Bugs
+- Incorrect max value(+1) with 64 bit types in `_create_value_symbols`.
+### WIP
+- `/wav/text/aes256_N-FSK/decrypter`.
+
 
