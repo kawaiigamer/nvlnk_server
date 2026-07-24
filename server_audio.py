@@ -41,6 +41,7 @@ class AESBase:
 
     @staticmethod
     def from_config(config: Dict[str, Union[str, int]]) -> Self:
+        print(config)
         mode = config.get("mode", "CBC")
         if mode == "GCM":
             return AESGCM(**config)
@@ -428,19 +429,7 @@ class AsyncAudioStream:
                 yield fsk_frame.tobytes()
                 sec += 1
 
-    async def _async_stream_generator(self) -> AsyncGenerator[bytes, None]:
-        yield self.wav.create_wav_header(self.expected_frames_count)
-        if self._req_range is None:
-            return
-        self.logger.msgl(lambda: f"Stream initiated with config: {self.to_json()}")
-        for i in count(start=1):
-            try:
-                yield next(self.sample_gen)
-            except StopIteration:
-                return
-            if i == self.wav.duration:
-                return
-            await asyncio.sleep(self.frames_delay)
+
 
     def _sync_generator_wrapper(self) -> Generator[bytes, None, None]:
         loop = asyncio.new_event_loop()
@@ -554,8 +543,31 @@ class AsyncAudioStream:
         return {"stream_uuid": self.stream_uuid, "expected_frames_count": self.expected_frames_count,
                 "wav": self.wav.to_json(), "crypter": self.crypter.to_json() if self.crypter else {}}
 
+    async def _async_stream_generator(self) -> AsyncGenerator[bytes, None]:
+        #if str(self._req_range) == "bytes=0-":
+        yield self.wav.create_wav_header(self.expected_frames_count)
+
+        # if self._req_range is None:
+        #     return
+
+        self.logger.msgl(lambda: f"Stream initiated with config: {self.to_json()}")
+        #yield self.wav.create_wav_header(self.expected_frames_count)
+        for i in count(start=1):
+            try:
+                yield next(self.sample_gen)
+            except StopIteration:
+                return
+            if i == self.wav.duration:
+                return
+            await asyncio.sleep(self.frames_delay)
+
     def start(self) -> Response:
         if self.wav.info_only:
             return Response(json.dumps(self.to_json(), indent=4, default=str, ensure_ascii=False), mimetype='application/json')
+        self.logger.msg(f"_req_range: {self._req_range}")
         self._init_generators()
+        if self._req_range is None:
+             return Response(self.wav.create_wav_header(), mimetype='audio/wav')
+        # if str(self._req_range) == "bytes=0-":
+
         return Response(self._sync_generator_wrapper(), mimetype='audio/wav')

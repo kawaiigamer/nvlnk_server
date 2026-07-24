@@ -1,10 +1,10 @@
 # ws-http-endpoint
-___
+
 
 Custom Http endpoint for default WS with external IP.
 
 ## Usage
-___
+
 ```
 python3 -m ws_endpoint.py [-h] [-p PORT] [-d DEBUG]
 
@@ -16,13 +16,12 @@ options:
   -d DEBUG, --debug DEBUG   enable debug mode(default=True)
 ```
 ## Getting runtime status & all services information with endpoints + parameters description and presets (json)
-___
 
 ```
 curl -X GET http://{IP}:{PORT}/
 ```
 ## TODO
-___
+
 ### Features
 - Dynamic FSK generation(decryption already supported).
 - Different data for different channels.

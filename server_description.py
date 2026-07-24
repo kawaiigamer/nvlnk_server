@@ -108,9 +108,9 @@ _wav_duration_params_descr = [Param("t", "duration", 0, "Duration of stream in s
 _wav_nfsk_params_descr: List[Param] = [Param("fssc", "full_vs_symbol_samples_count", 196, "Samples count in seq of value+sync symbols"), Param("vssc", "value_symbol_samples_count", 68, "Samples count in seq of value symbol")]
 _wav_nfsk_level_params_descr: List[Param] = [Param("lv", "fsk_level", 2, "Level of FSK(bits per one value symbol), ex: 2(1 bit), 4(2 bits), 8(3 bits), 16(4 bits), 32(5 bits), 64(6 bits), 128(7 bits), 256(8 bits)")]
 # _wav_dynamic_nfsk_params_descr: List[Param] = [Param("rand_lv", "dynamic_fsk_level", "false", "Randomly changing level(N) for N-FSK(+symbols values) for every next frame in setted interval"),
-#                                                Param("rand_lv_min", "dynamic_fsk_level_min", 4, "Min level for dynamic FSK"), Param("rand_lv_max", "dynamic_fsk_level_max", 256, "Max level for dynamic FSK")] #TODO: add
-_wav_nfsk_decrypt_errors_descr = [Param("errors", "errors_mode", "ignore", "Use 'ignore' - ignores any error, 'break' - interrupts decrypt process, 'skip' - skipping error frame, continuing to next frame")]
-_aes_params_descr: List[Param] = [Param("key", "key_str", _AES256_KEY, "256 bits key"), Param("mode", "mode", "CBC", "AES256 mode GCM or CBC"),
+#                                                Param("rand_lv_min", "dynamic_fsk_level_min", 4, "Min level for dynamic FSK"), Param("rand_lv_max", "dynamic_fsk_level_max", 256, "Max level for dynamic FSK")]
+_wav_nfsk_decrypt_errors_descr = [Param("errors", "errors_mode", "ignore", "'ignore' - ignores any error, 'break' - interrupts decrypt process, 'skip' - skipping error frame, continuing to next frame")]
+_aes_params_descr: List[Param] = [Param("key", "key_str", _AES256_KEY, "256 bits key"), Param("mode", "mode", "CBC", "AES256 mode(GCM or CBC)"),
                                   Param("iv", "iv_length", 16, "Initialization Vector (IV) length in bytes"), Param("tag", "tag", "notag", "Authentication Tag(only for GCM mode)"),]
 _aes_text_params_descr: List[Param] = [Param("text", "text", "", "Plain text for encryption")]
 _wav_additional_params_descr: List[Param] = [Param("info_only", "info_only", "false", "Get json info instead of of stream")]
@@ -146,11 +146,12 @@ _endpoints = {"wav": RoutePart("Uncompressed audio",
                                                                                                                  }),
                                                                             },),
                                 "text": RoutePart("Text to audio encrypt/decrypt utils", {
-                                                                            "aes256_N-FSK": RoutePart("Text to/from audio/wav encoding/decoding via AES-256(GCM/CBC)+N-FSK ", {
+                                                                            "aes256_N-FSK": RoutePart("Text to/from audio/wav encoding/decoding via AES-256(GCM/CBC)+N-FSK", {
                                                                                                                         "crypter": EndpointPart("Text to audio/wav AES-256(GCM/CBC)+N-FSK crypter(plain text -> bytes -> AES-256 -> bytes -> bits -> wav header + frames[each frame constants any value symbols, each value symbol codes some bits count(1-8)])", "GET, POST", _wav_params_descr + _wav_nfsk_params_descr + _wav_nfsk_level_params_descr + _aes_params_descr + _aes_text_params_descr, presets=_fsk_presets, post_params=_post_aes_text_params_descr),
+                                                                                                                        "crypter/form": EndpointPart("Form for plain text inputting", "GET", []),
                                                                                                                         "decrypter": EndpointPart("Audio/wav file to text AES-256(GCM/CBC)+N-FSK decrypter(wav header + frames[each frame constants any value symbols, each value symbol codes some bits count(1-8)] -> frames -> "
                                                                                                                                                   "bytes -> value symbols -> bits -> bytes -> AES-256 -> bytes -> plain text)\n"
-                                                                                                                                                  "Fully supports dynamic N-FSK, FSK config(level, symbols values) updates for each frame! Automatically detects all wav parameters(sample rate, channels, channel data type, etc)", "POST", _wav_nfsk_params_descr + _wav_nfsk_level_params_descr + _aes_params_descr + _aes_text_params_descr + _wav_nfsk_decrypt_errors_descr, post_params=_post_wav_file_params_descr),
+                                                                                                                                                  "Fully supports dynamic N-FSK, FSK config(level, symbols values) updates for each frame! Automatically detects all wav parameters(sample rate, channels, channel data type, etc)", "GET, POST", _wav_nfsk_params_descr + _wav_nfsk_level_params_descr + _aes_params_descr + _aes_text_params_descr + _wav_nfsk_decrypt_errors_descr, post_params=_post_wav_file_params_descr),
                                                                                                                         }),
                                                                             },),
 
