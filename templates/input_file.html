@@ -210,6 +210,10 @@
          </div>
       </form>
       <script>
+         const _KB = 1024;
+         const _MB = _KB  * _KB;
+         const MAX_FILE_SIZE_MB = 128;
+         const MAX_FILE_SIZE_B = _MB * MAX_FILE_SIZE_MB;
          const form = document.getElementById('cryptoForm');
          const fileInput = document.getElementById('fileInput');
          const chooseFileButton = document.getElementById('chooseFileButton');
@@ -264,9 +268,17 @@
          }
 
          function updateSubmitState() {
-             const hasFile = !!getSelectedFile();
+             const file = getSelectedFile();
+             const hasFile = !!file;
              const hasFullKey = isFullHexKey(hexKeyInput.value.trim());
-             submitButton.disabled = !(hasFile && hasFullKey);
+
+             if (file && file.size > MAX_FILE_SIZE_B) {
+                  setStatus(`The file size must not exceed ${MAX_FILE_SIZE_MB} MB`, 'error');
+                  submitButton.disabled = true;
+                  return;
+             }
+            setStatus('');
+            submitButton.disabled = !(hasFile && hasFullKey);
          }
 
          chooseFileButton.addEventListener('click', () => fileInput.click());
@@ -334,8 +346,12 @@
              const mode = cipherModeSelect.value;
              const ivSize = ivSizeSelect.value;
 
-             const url = `/wav/text/aes256_N-FSK/decrypter?mode=${encodeURIComponent(mode)}&iv=${encodeURIComponent(ivSize)}&key=${encodeURIComponent(keyValue)}`;
+             if (file.size > MAX_FILE_SIZE_B) {
+               setStatus(`The file size must not exceed ${MAX_FILE_SIZE_MB} MB`, 'error');
+               return;
+             }
 
+             const url = `/wav/text/aes256_N-FSK/decrypter?mode=${encodeURIComponent(mode)}&iv=${encodeURIComponent(ivSize)}&key=${encodeURIComponent(keyValue)}`;
              const response = fetch(url, {
                      method: 'POST',
                      headers: {

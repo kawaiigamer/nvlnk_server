@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from dataclasses import dataclass, field
 from typing import Union, List, Dict, Self, Optional, Any, Type
 
@@ -8,7 +8,7 @@ import numpy as np
 _TOX_ID = "E7B2DD4DBF47295A58F372F5FA4A88CB655999D23ABE5415CF00E7400551A901A15477F334F2"
 _TIME_FMT = "%d.%m.%y %H:%M:%S"
 _AES256_KEY = "BF9514A1BBFA307092C4971CBDE621BEE381BB00EF1B8841356A6428F5288B58"
-
+_SESSION_LIFETIME = timedelta(seconds=10)
 
 class __DataclassEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -41,7 +41,7 @@ class Param(OrderedDataclass):
     def __post_init__(self):
         self.data_type = type(self.default_value)
 
-    def to_dict(self):
+    def to_dict(self) -> Dict[str, Any]:
         return {"name": self.name, "fullname": self.fullname,
                 "data_type": self.data_type.__name__, "default_value": self.default_value,
                 "description": self.description}
@@ -55,7 +55,7 @@ class EndpointPart(OrderedDataclass):
     post_params: List[Param] = field(default_factory=list)
     presets: Dict[str, Dict[str, int]] = field(default_factory=dict)
 
-    def to_dict(self):
+    def to_dict(self) -> Dict[str, Any]:
         j = {"type": "endpoint", "description": self.description,
                 "method": self.method, "params": [p.to_dict() for p in self.params]}
         if self.post_params:
@@ -70,7 +70,7 @@ class RoutePart(OrderedDataclass):
     description: str
     parents: Dict[str, Union[Self, EndpointPart]]
 
-    def to_dict(self):
+    def to_dict(self) -> Dict[str, Any]:
         return {"type": "route", "description": self.description,
                 "parents": {k: v.to_dict() for k, v in self.parents.items()}}
 
@@ -82,7 +82,7 @@ class Main(OrderedDataclass):
     started_at: datetime
     timezone: str
     tox_id: str
-    services: Dict[str, RoutePart]
+    services: Dict[str, Union[RoutePart, EndpointPart]]
 
     @property
     def running_time(self) -> str:
@@ -95,7 +95,7 @@ class Main(OrderedDataclass):
     def started_time(self) -> str:
         return self.started_at.strftime(_TIME_FMT)
 
-    def to_dict(self):
+    def to_dict(self) -> Dict[str, Any]:
         return {"name": self.name, "status": self.status, "started_at": self.started_time, "timezone": self.timezone,
                 "running_time": self.running_time, "tox_id": self.tox_id,
                 "services": {k: v.to_dict() for k, v in self.services.items()}}
@@ -115,7 +115,7 @@ _wav_dynamic_nfsk_params_descr: List[Param] = [Param("dfsk", "dynamic_fsk", "fal
                                                Param("dsm", "dynamic_smoothing", "false", "Randomly changing smoothing for every next frame in setted interval"),
                                                Param("dsm_min", "dynamic_smoothing_min", 1.0, "Min level for dynamic FSK"), Param("dsm_max", "dynamic_smoothing_max", 3.0, "Max level for dynamic FSK"),
                                                ]
-_wav_nfsk_decrypt_errors_descr = [Param("errors", "errors_mode", "ignore", "'ignore' - ignores any error, 'break' - interrupts decrypt process, 'skip' - skipping error frame, continuing to next frame")]
+_wav_nfsk_decrypt_errors_descr: List[Param] = [Param("errors", "errors_mode", "ignore", "'ignore' - ignores any error, 'break' - interrupts decrypt process, 'skip' - skipping error frame, continuing to next frame")]
 _aes_params_descr: List[Param] = [Param("key", "key_str", _AES256_KEY, "256 bits key"), Param("mode", "mode", "CBC", "AES256 mode(GCM or CBC)"),
                                   Param("iv", "iv_length", 16, "Initialization Vector (IV) length in bytes"), Param("tag", "tag", "notag", "Authentication Tag(only for GCM mode)")
                                   ]
@@ -123,24 +123,24 @@ _aes_text_params_descr: List[Param] = [Param("text", "text", "", "Plain text for
 _wav_additional_params_descr: List[Param] = [Param("info_only", "info_only", "false", "Get json info instead of of stream")]
 _post_wav_file_params_descr: List[Param] = [Param("file", "file", b"", "Wav file raw data")]
 _post_aes_text_params_descr: List[Param] = [Param("text", "text", "", "Plain text for encryption")]
-_fsk_presets = {"std44100_16n":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 44100, "value_symbol_samples_count": 64, "full_vs_symbol_samples_count": 180},  #245
-            "std48000_16vl": {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "value_symbol_samples_count": 480, "full_vs_symbol_samples_count": 1200},  #40
-            "std48000_16l":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "value_symbol_samples_count": 192, "full_vs_symbol_samples_count": 400},  #120
-            "std48000_16n":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "value_symbol_samples_count": 108, "full_vs_symbol_samples_count": 240},  #200
-            "std48000_16f":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "value_symbol_samples_count": 56, "full_vs_symbol_samples_count": 150},  #320
-            "std48000_16vf": {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "value_symbol_samples_count": 32, "full_vs_symbol_samples_count": 96},  #500
-            "std48000_32vf": {"channels": 2, "channel_bit_depth": 32, "data_type": "int32", "samples_rate": 48000, "value_symbol_samples_count": 32, "full_vs_symbol_samples_count": 96},
-            "std96000_16vl": {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 720, "full_vs_symbol_samples_count": 1600},  #60
-            "std96000_16l":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 480, "full_vs_symbol_samples_count": 960},  #100
-            "std96000_16n":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 384, "full_vs_symbol_samples_count": 640},  #150
-            "std96000_16h":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 192, "full_vs_symbol_samples_count": 480},  #200
-            "std96000_16f":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 128, "full_vs_symbol_samples_count": 384},  #250
-            "std96000_16vf": {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 64, "full_vs_symbol_samples_count": 160},  #600
-            "std96000_32vf": {"channels": 2, "channel_bit_depth": 32, "data_type": "int32", "samples_rate": 96000, "value_symbol_samples_count": 64, "full_vs_symbol_samples_count": 160},
-                }
-_endpoints = {"wav": RoutePart("Uncompressed audio",
-                               {
-                                "random": RoutePart("Streams using random data as source", {
+_fsk_presets: Dict[str, int] = {
+                                    "std44100_16n":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 44100, "value_symbol_samples_count": 64, "full_vs_symbol_samples_count": 180},  #245
+                                    "std48000_16vl": {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "value_symbol_samples_count": 480, "full_vs_symbol_samples_count": 1200},  #40
+                                    "std48000_16l":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "value_symbol_samples_count": 192, "full_vs_symbol_samples_count": 400},  #120
+                                    "std48000_16n":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "value_symbol_samples_count": 108, "full_vs_symbol_samples_count": 240},  #200
+                                    "std48000_16f":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "value_symbol_samples_count": 56, "full_vs_symbol_samples_count": 150},  #320
+                                    "std48000_16vf": {"channels": 2, "channel_bit_depth": 16, "samples_rate": 48000, "value_symbol_samples_count": 32, "full_vs_symbol_samples_count": 96},  #500
+                                    "std48000_32vf": {"channels": 2, "channel_bit_depth": 32, "data_type": "int32", "samples_rate": 48000, "value_symbol_samples_count": 32, "full_vs_symbol_samples_count": 96},
+                                    "std96000_16vl": {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 720, "full_vs_symbol_samples_count": 1600},  #60
+                                    "std96000_16l":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 480, "full_vs_symbol_samples_count": 960},  #100
+                                    "std96000_16n":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 384, "full_vs_symbol_samples_count": 640},  #150
+                                    "std96000_16h":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 192, "full_vs_symbol_samples_count": 480},  #200
+                                    "std96000_16f":  {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 128, "full_vs_symbol_samples_count": 384},  #250
+                                    "std96000_16vf": {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 64, "full_vs_symbol_samples_count": 160},  #600
+                                    "std96000_32vf": {"channels": 2, "channel_bit_depth": 32, "data_type": "int32", "samples_rate": 96000, "value_symbol_samples_count": 64, "full_vs_symbol_samples_count": 160},
+                                }
+_endpoints: Dict[str, Union[RoutePart, EndpointPart]] = {"wav": RoutePart("Uncompressed audio",  {
+                                                                            "random": RoutePart("Streams using random data as source", {
                                                                             "stream": EndpointPart("Raw audio/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr + _wav_additional_params_descr),
                                                                             "aes256": RoutePart("AES-256(GCM/CBC) encoding", {
                                                                                                                         "stream": EndpointPart("AES-256(GCM/CBC) encoded audio/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr + _wav_additional_params_descr + _aes_params_descr)
