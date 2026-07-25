@@ -18,7 +18,7 @@ from cryptography.hazmat.primitives import padding
 from flask import Response
 
 
-class AESBase:
+class AESCrypterBase:
     def __init__(self, key_str: str, iv_length: int, text: str = "", **kwargs):
         self.key = bytes.fromhex(key_str)
         if len(self.key) != 32:
@@ -31,27 +31,26 @@ class AESBase:
         return 0
 
     def encrypt(self, data: Union[bytes, str]) -> bytes:
-        raise NotImplemented
+        raise NotImplemented(f"Not implemented in {self.__class__.__name__} class")
 
     def decrypt(self, data: bytes) -> str:
-        raise NotImplemented
+        raise NotImplemented(f"Not implemented in {self.__class__.__name__} class")
 
     def to_json(self):
         return {"class": self.__class__.__name__, "key": self.key.hex().upper(), "iv_length": self.iv_length, "text_for_crypt": self.text, "additional_payload_length": self.additional_payload_length}
 
     @staticmethod
     def from_config(config: Dict[str, Union[str, int]]) -> Self:
-        print(config)
         mode = config.get("mode", "CBC")
         if mode == "GCM":
-            return AESGCM(**config)
+            return AESCrypterGCM(**config)
         elif mode == "CBC":
-            return AESCBC(**config)
+            return AESCrypterCBC(**config)
         else:
             raise ValueError(f"Selected AES256 mode is not supported: {mode}")
 
 
-class AESGCM(AESBase):
+class AESCrypterGCM(AESCrypterBase):
     def __init__(self, tag: str = "", **kwargs):
         super().__init__(**kwargs)
         self._crypter = AESGCM(self.key)
@@ -72,7 +71,7 @@ class AESGCM(AESBase):
         return {**super().to_json(), "tag": self._tag_bytes.hex().upper()}
 
 
-class AESCBC(AESBase):
+class AESCrypterCBC(AESCrypterBase):
 
     @property
     def additional_payload_length(self) -> int:
@@ -101,7 +100,7 @@ class AESCBC(AESBase):
 
 
 class WavAudio:
-    _supported_data_types = ("int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64", "float16", "float32", "float64")
+    supported_data_types = ("int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64", "float16", "float32", "float64")
     WAVE_FORMAT_PCM = 1
     WAVE_FORMAT_IEEE_FLOAT = 3
 
@@ -111,14 +110,14 @@ class WavAudio:
             raise ValueError(f"Divmod of {x_name} on {y_name_} must be integer({x}/{y}={r}+mod({r_mod}))")
         return r
 
-    def __init__(self, channels: int, channel_bit_depth: int, samples_rate: int, data_type: str = "int16", duration: int = 0, info_only: str = "false"):
+    def __init__(self, channels: int, channel_bit_depth: int, samples_rate: int, data_type: str = "int16", duration: int = 0, info_only: str = "false", **kwargs):
         self.info_only = info_only.lower() == 'true'
         self.channels = channels
         self.channel_bit_depth = channel_bit_depth
         self.samples_rate = samples_rate
         self.sample_length = self.channels * int(self.channel_bit_depth // 8)
         self.frame_length = self.sample_length * self.samples_rate
-        if data_type not in self._supported_data_types:
+        if data_type not in self.supported_data_types:
             raise ValueError(f"Selected data type: {data_type} is not supported!")
         try:
             self.data_type: Union[np.integer, np.floating] = np.dtype(data_type).type
@@ -168,6 +167,7 @@ class WavAudio:
 class WavAudioNFSK(WavAudio):
 
     supported_fsk_levels = (2, 4, 8, 16, 32, 64, 128, 256)
+    max_dynamic_smoothing_diff = 32.0
     _errors_modes = ("skip", "break",  "ignore")
     _BASE256_CHARSET = (
                          ("0123456789" "ABCDEFGHIJKLMNOPQRSTUVWXYZ" "ĎĚĤĨĴŎŤŪŘŇĜЃꚧᾸỸẐṼẌẄṦ" "Ꜩ₽₳₱€₦₩" "☰☱☲☳☴☵☶☷" "ΔΘΛΞΨΩ") +
@@ -180,10 +180,8 @@ class WavAudioNFSK(WavAudio):
         return self._BASE256_CHARSET[no]
 
     def _create_value_symbols(self) -> Tuple[List[int], int]:
-        if self.fsk_level not in self.supported_fsk_levels:
-            raise ValueError(f"FSK level must be in {self.supported_fsk_levels}, but not {self.fsk_level}!")
         interval: Tuple[int, int] = (int(self.data_type_info.min), int(self.data_type_info.max))
-        values_range = abs(interval[0]) + abs(interval[1])
+        values_range = (abs(interval[0]) + abs(interval[1]))/self.smoothing
         if values_range < self.fsk_level:
             raise ValueError(f"Levels count({self.fsk_level}) is bigger then values range({values_range}) for selected type({self.data_type})!")
         sub_level = self.fsk_level // 2
@@ -194,21 +192,49 @@ class WavAudioNFSK(WavAudio):
     def _bits_seq_to_int(self, seq: Iterable[int]) -> int:
         return int("".join(str(bit) for bit in seq), 2)
 
-    def __init__(self, fsk_level: int, full_vs_symbol_samples_count: int, value_symbol_samples_count: int, errors_mode: str = "ignore", **kwargs):
+    def __init__(self, fsk_level: int, full_vs_symbol_samples_count: int, value_symbol_samples_count: int,
+                 dynamic_fsk: str = "false", dynamic_fsk_min: int = 0, dynamic_fsk_max: int = 0,
+                 dynamic_smoothing: str = "false", dynamic_smoothing_min: float = 1.0, dynamic_smoothing_max: float = 2.0,
+                 errors_mode: str = "ignore", smoothing: float = 1.0, **kwargs):
         super().__init__(**kwargs)
         self.full_vs_symbol_samples_count = full_vs_symbol_samples_count
         self.value_symbol_samples_count = value_symbol_samples_count
         self.sync_symbol_samples_count = full_vs_symbol_samples_count - value_symbol_samples_count
+        self.dynamic_fsk: bool = dynamic_fsk.lower() == 'true'
+        if self.dynamic_fsk:
+            if not all([l in self.supported_fsk_levels for l in (dynamic_fsk_min, dynamic_fsk_max)]):
+                raise ValueError(f"Unsupported dynamic FSK levels {dynamic_fsk_min}-{dynamic_fsk_max}!")
+            if dynamic_fsk_max < dynamic_fsk_min:
+                raise ValueError(f"Max dynamic FSK level < min dynamic FSK level: {dynamic_fsk_max} < {dynamic_fsk_min}!")
+        self.dynamic_fsk_levels: List[int] = list(self.supported_fsk_levels[self.supported_fsk_levels.index(dynamic_fsk_min):self.supported_fsk_levels.index(dynamic_fsk_max)+1])
+        if len(self.dynamic_fsk_levels) <= 1:
+            raise ValueError(f"Count of dynamic FSK levels must be bigger then 1, not {len(self.dynamic_fsk_levels)}!")
         self.errors_mode = "skip" if errors_mode not in self._errors_modes else errors_mode
         self.sync_char_in_str = '█'
         self.error_char_in_str = '❌'
-        self.set_fsk_level(fsk_level)
+        self.dynamic_smoothing: bool = dynamic_smoothing.lower() == 'true'
+        if self.dynamic_smoothing:
+            if dynamic_smoothing_max < dynamic_smoothing_min:
+                raise ValueError(f"Max dynamic smoothing coff < min dynamic smoothing coff: {dynamic_smoothing_max} < {dynamic_smoothing_min}!")
+            if (dynamic_smoothing_max - dynamic_smoothing_min) > self.max_dynamic_smoothing_diff:
+                raise ValueError(f"Dynamic smoothing diff must be smaller then {self.max_dynamic_smoothing_diff}, but not: {dynamic_smoothing_max - dynamic_smoothing_min}")
+            self.dynamic_smoothing_min = dynamic_smoothing_min
+            self.dynamic_smoothing_max = dynamic_smoothing_max
+        self.fsk_level = 2
+        self.smoothing = smoothing
+        if self.dynamic_fsk:
+            self.set_random_smoothing_and_fsk_level()
+        else:
+            self.set_fsk_level(fsk_level, smoothing)
 
-    def set_fsk_level(self, fsk_level: int):
-        self.fsk_level = fsk_level
+    def set_fsk_level(self, new_fsk_level: int, new_smoothing: float = 1.0):
+        if new_fsk_level not in self.supported_fsk_levels:
+            raise ValueError(f"FSK level must be in {self.supported_fsk_levels}, but not {new_fsk_level}!")
+        self.fsk_level = new_fsk_level
+        self.smoothing = new_smoothing
         self.value_symbols, self.sync_symbol = self._create_value_symbols()
         self.frame_full_symbols_count = self._int_div(self.samples_rate, self.full_vs_symbol_samples_count, "samples rate", "samples count for full symbol")
-        self.bits_in_value_symbol = int(math.log2(fsk_level))
+        self.bits_in_value_symbol = int(math.log2(self.fsk_level))
         if self.bits_in_value_symbol == 1:
             self.result_str_index_shift = 0
         else:
@@ -293,13 +319,23 @@ class WavAudioNFSK(WavAudio):
     def bytes_to_bits_array(self, bytes_seq: bytes) -> np.ndarray:
         return np.unpackbits(np.frombuffer(bytes_seq, dtype=np.uint8))
 
+    def set_random_smoothing_and_fsk_level(self) -> Tuple[int, float]:
+        new_level = random.choice([lv for lv in self.dynamic_fsk_levels if lv != self.fsk_level]) if self.dynamic_fsk else self.fsk_level
+        new_smoothing = round(random.uniform(self.dynamic_smoothing_min, self.dynamic_smoothing_max), 2) if self.dynamic_smoothing else self.smoothing
+        if new_level == self.fsk_level and new_smoothing == self.smoothing:
+            raise ArithmeticError("The operation is pointless. The previous N-FSK values are the same as the new ones!")
+        self.set_fsk_level(new_level, new_smoothing)
+        return (new_level, new_smoothing)
+
     def to_json(self):
-        return {**super().to_json(), "fsk_level": self.fsk_level, "full_vs_symbol_samples_count": self.full_vs_symbol_samples_count, "value_symbol_samples_count": self.value_symbol_samples_count,
+        return {**super().to_json(), "fsk_level": self.fsk_level, "dynamic_fsk_levels": self.dynamic_fsk_levels if self.dynamic_fsk else (0,0),
+                   "smoothing": self.smoothing, "dynamic_smoothing": (self.dynamic_smoothing_min, self.dynamic_smoothing_max) if self.dynamic_smoothing else (0,0),
+                   "full_vs_symbol_samples_count": self.full_vs_symbol_samples_count, "value_symbol_samples_count": self.value_symbol_samples_count,
                    "sync_symbol_samples_count": self.sync_symbol_samples_count, "frame_full_symbols_count": self.frame_full_symbols_count, "bits_in_value_symbol": self.bits_in_value_symbol, "real_speed_bytes_per_sec": self.real_speed_bytes_per_sec,
                    "sync_char_in_str": self.sync_char_in_str, "error_char_in_str": self.error_char_in_str, "value_symbols_seq_length": self.value_symbols_seq_length, "sync_symbols_seq_length": self.sync_symbols_seq_length,
                    "result_str_index_shift": self.result_str_index_shift, "value_symbol_duration_sec": self.value_symbol_duration_sec, "sync_symbol_duration_sec": self.sync_symbol_duration_sec,
                    "full_symbol_duration_sec": self.full_symbol_duration_sec, "base256_charset": self._BASE256_CHARSET, "value_symbols": self.value_symbols, "sync_symbol": self.sync_symbol,
-                   "supported_fsk_levels": self.supported_fsk_levels, "supported_data_types": self._supported_data_types, "errors_mode": self.errors_mode}
+                   "supported_fsk_levels": self.supported_fsk_levels, "supported_data_types": self.supported_data_types, "errors_mode": self.errors_mode}
 
 
 class SimpleLogger:
@@ -339,9 +375,9 @@ class SimpleLogger:
 
 
 class AsyncAudioStream:
-    def __init__(self, wav: WavAudio, crypter: Optional[AESBase], req_range = None, debug: bool = True):
+    def __init__(self, wav: WavAudio, crypter: Optional[AESCrypterBase], req_range = None, debug: bool = True):
         self.stream_uuid: str = ''.join(random.choices(string.hexdigits, k=8))
-        self.wav = wav
+        self.wav: Union[WavAudio, WavAudioNFSK] = wav
         self.frames_delay = 1
         self.crypter = crypter
         self.expected_frames_count = 0
@@ -388,13 +424,13 @@ class AsyncAudioStream:
                 counter += bits_per_iteration
                 yield padded_array
 
-    def _text_aes_crypted_fsk_frames_gen(self) -> Generator[bytes, None, None]:
+    def _text_aes_crypted_fsk_frames_gen(self) -> Generator[bytes, None, None]:   #TODO
         self.logger.msgl(lambda: f"Received Plain Text: {self.logger.seq(self.crypter.text, 32)}, Using {self.crypter.__class__.__name__},  Additional AES bytes count: {self.crypter.additional_payload_length}...")
         encrypted_text_bytes: bytes = self.crypter.encrypt(self.crypter.text)
         encrypted_text_bits: np.ndarray = self.wav.bytes_to_bits_array(encrypted_text_bytes)
         bits_as_full_symbols_in_frame: int = self.wav.frame_full_symbols_count*self.wav.bits_in_value_symbol
         self.expected_frames_count = math.ceil(len(encrypted_text_bits) / self.wav.frame_full_symbols_count / self.wav.bits_in_value_symbol)
-        self.logger.msgl(lambda: f"AES crypted bytes: {self.logger.seq(encrypted_text_bytes)}, AES crypted bits: {self.logger.seq(encrypted_text_bits)}, "
+        self.logger.msgl(lambda: f"AES crypted bytes: {self.logger.seq(encrypted_text_bytes)}, AES crypted bits: {encrypted_text_bits}, "
                         f"Bits in frame(as full symbols): {bits_as_full_symbols_in_frame}, Expected frames count: {self.expected_frames_count}")
         yield
         for i, padded_bits_per_frame in enumerate(self._padded_bits_gen(encrypted_text_bits, bits_as_full_symbols_in_frame), 1):
@@ -414,12 +450,16 @@ class AsyncAudioStream:
 
     def _random_fsk_frames_gen(self) -> Generator[bytes, None, None]:
         for i in count(start=1):
+            if self.wav.dynamic_fsk:
+                l, s = self.wav.set_random_smoothing_and_fsk_level()
+                self.logger.msg(f"New FSK level: {l}, New smoothing coff: {s}")
+                self.logger.msgl(lambda: f"[sec={i}] Fsk level changed, new N-FSK config: {self.wav.to_json()}")
             bits: np.ndarray = self.wav.create_random_bits_array(self.wav.frame_full_symbols_count*self.wav.bits_in_value_symbol)
             fsk_frame: np.ndarray = self.wav.create_fsk_frame(bits)
             self.logger.stream_msgs_block(i, bits, fsk_frame)
             yield fsk_frame.tobytes()
 
-    def _random_aes_fsk_frames_gen(self) -> Generator[bytes, None, None]:
+    def _random_aes_fsk_frames_gen(self) -> Generator[bytes, None, None]: #TODO
         aes_crypted_frames_gen = self._random_aes_crypted_frames_gen()
         sec = 1
         while True:
@@ -428,8 +468,6 @@ class AsyncAudioStream:
                 self.logger.stream_msgs_block(sec, bits, fsk_frame)
                 yield fsk_frame.tobytes()
                 sec += 1
-
-
 
     def _sync_generator_wrapper(self) -> Generator[bytes, None, None]:
         loop = asyncio.new_event_loop()
@@ -445,6 +483,8 @@ class AsyncAudioStream:
             loop.close()
 
     def wav_aes_nfsk_decrypt(self, data: bytes) -> Optional[str]:
+        PADDING_DETECTION_SAME_BITS_COUNT = 5
+
         # Reading raw data as memory stream
         wav_stream = io.BytesIO(data)
         with wave.open(wav_stream, "rb") as wav_file:
@@ -503,6 +543,7 @@ class AsyncAudioStream:
                     raise ValueError(_message)
                 elif self.wav.errors_mode == "skip":
                     self.logger.msg(f"{_message}, skipping current frame!")
+                    continue
                 else:
                     self.logger.msg(f"{_message}, ignoring current frame!")
 
@@ -510,7 +551,7 @@ class AsyncAudioStream:
             self.logger.msgl(lambda: f'[Frame={frame_counter}] N-FSK params: { {"fsk_level": frame_fsk_level, "bits_in_value_symbol": frame_bits_in_value_symbol,
                                                                                 "sync_symbol": frame_sync_symbol, "value_symbols": frame_value_symbols} }')
 
-            # Extracting only value symbols seq then converting its to bits
+            # Extracting only value symbols sequence and converting its to bits
             frame_symbols_seq: np.ndarray = frame[np.concatenate(([True], frame[1:] != frame[:-1]))]
             self.logger.msg(f"[Frame={frame_counter}] All detected symbols sequence length: {frame_symbols_seq.size}")
             if frame_sync_symbol is not None:
@@ -519,25 +560,25 @@ class AsyncAudioStream:
             frame_bits_from_value_symbols: List[np.ndarray] = [np.fromiter(np.binary_repr(frame_value_symbols.index(s), width=frame_bits_in_value_symbol), dtype=int) for s in frame_symbols_seq]
             bits_summary += frame_bits_from_value_symbols
 
-        # Concatenating all bit seqs from all frames
+        # Concatenating all bit sequences from all frames
         all_bits: np.ndarray = np.concatenate(bits_summary)
         self.logger.msg(f"Concatenated from all frames bits sequence length: {all_bits.size}")
 
-        # Detecting bits padding and all unpadding bits seq
+        # Detecting bits padding and all unpadding bits sequence
         last_bit = all_bits[-1]
         unpadding_mask = (all_bits[::-1] == last_bit)
         same_bits_at_end = np.argmax(~unpadding_mask) if not np.all(unpadding_mask) else len(all_bits)
-        if same_bits_at_end > 5:  # TODO: May be change
+        if same_bits_at_end > PADDING_DETECTION_SAME_BITS_COUNT:
             self.logger.msg(f"Concatenated bits sequence looks like padded, last {same_bits_at_end} has same value: {last_bit}")
             all_bits = all_bits[:all_bits.size - same_bits_at_end]
             self.logger.msg(f"Unpadded concatenated bits sequence length: {all_bits.size}")
 
-        # Converting bits seq to bytes
+        # Converting bits sequence to bytes
         all_bytes: bytes = np.packbits(all_bits).tobytes()
         self.logger.msg(f"Concatenated bits sequence converted to bytes length: {len(all_bytes)}")
 
-        plain_text: str = self.crypter.decrypt(all_bytes)
-        return plain_text
+        # Decrypting bytes plain text
+        return self.crypter.decrypt(all_bytes)
 
     def to_json(self):
         return {"stream_uuid": self.stream_uuid, "expected_frames_count": self.expected_frames_count,

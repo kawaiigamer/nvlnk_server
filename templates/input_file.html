@@ -1,126 +1,373 @@
 <!DOCTYPE html>
 <html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <title>Fullscreen WAV selector</title>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        html, body { width: 100%; height: 100%; overflow: hidden; font-family: sans-serif; }
-        .full-form { display: flex; flex-direction: column; width: 100vw; height: 100vh; }
-        .file-drop-zone { flex-grow: 1; display: flex; align-items: center; justify-content: center; background: #f9f9f9; padding: 20px; }
-        .file-label { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; height: 100%; border: 3px dashed #ccc; border-radius: 8px; cursor: pointer; background: #fff; transition: background 0.2s, border-color 0.2s; }
-        .file-label:hover { background: #f0f7ff; border-color: #007bff; }
-        .file-input { display: none; }
-        .file-text { font-size: 24px; color: #555; text-align: center; font-weight: bold; pointer-events: none; }
-        .file-subtext { font-size: 16px; color: #888; margin-top: 10px; pointer-events: none; }
-        .full-button { width: 100%; height: 80px; background: #007bff; color: white; border: none; font-size: 24px; cursor: pointer; font-weight: bold; }
-        .full-button:hover { background: #0056b3; }
-        .full-button:disabled { background: #ccc; cursor: not-allowed; }
-    </style>
-</head>
-<body>
-    <form class="full-form" id="uploadForm">
-        <div class="file-drop-zone">
-            <label class="file-label">
-                <input type="file" name="file" class="file-input" id="fileInput" accept=".wav">
-                <div class="file-text" id="fileName">Select WAV file</div>
-                <div class="file-subtext">Or drop it</div>
-            </label>
-        </div>
-        <button class="full-button" type="submit" id="submitBtn" disabled>Send</button>
-    </form>
+   <head>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <title>AES-256 WAV Decrypter</title>
+      <style>
+         * { box-sizing: border-box; }
+         html, body {
+         width: 100%;
+         height: 100%;
+         margin: 0;
+         overflow: hidden;
+         font-family: sans-serif;
+         background: #f4f6f8;
+         color: #222;
+         }
+         .full-form {
+         display: flex;
+         flex-direction: column;
+         width: 100vw;
+         height: 100vh;
+         }
+         .top-bar {
+         display: flex;
+         flex-wrap: wrap;
+         align-items: center;
+         gap: 15px;
+         padding: 10px 20px;
+         background: #eef2f5;
+         border-bottom: 1px solid #ccc;
+         }
+         .form-group {
+         display: flex;
+         align-items: center;
+         gap: 8px;
+         }
+         .form-group label {
+         font-size: 14px;
+         font-weight: bold;
+         white-space: nowrap;
+         color: #333;
+         }
+         .mode-select,
+         .iv-select {
+         padding: 8px 12px;
+         font-size: 14px;
+         border: 1px solid #ccc;
+         border-radius: 4px;
+         outline: none;
+         background: white;
+         }
+         .key-input {
+         width: 560px;
+         max-width: 100%;
+         padding: 8px 10px;
+         font-size: 13.5px;
+         border: 1px solid #ccc;
+         border-radius: 4px;
+         outline: none;
+         font-family: monospace;
+         letter-spacing: 0.5px;
+         text-transform: uppercase;
+         }
+         .file-area {
+         flex: 1;
+         display: flex;
+         flex-direction: column;
+         min-height: 0;
+         padding: 20px;
+         gap: 14px;
+         }
+         .drop-zone {
+         flex: 1;
+         min-height: 180px;
+         border: 2px dashed #8aa4c1;
+         border-radius: 10px;
+         background: #fff;
+         display: flex;
+         align-items: center;
+         justify-content: center;
+         text-align: center;
+         padding: 20px;
+         transition: 0.15s ease;
+         position: relative;
+         }
+         .drop-zone.dragover {
+         border-color: #007bff;
+         background: #f0f7ff;
+         }
+         .drop-zone-inner {
+         max-width: 700px;
+         line-height: 1.5;
+         color: #444;
+         }
+         .file-name {
+         margin-top: 10px;
+         font-weight: bold;
+         color: #1a4b8c;
+         word-break: break-all;
+         }
+         .file-controls {
+         display: flex;
+         gap: 12px;
+         flex-wrap: wrap;
+         align-items: center;
+         }
+         .file-button,
+         .submit-button {
+         border: none;
+         border-radius: 6px;
+         padding: 12px 18px;
+         font-size: 16px;
+         cursor: pointer;
+         transition: 0.2s ease;
+         }
+         .file-button {
+         background: #6c757d;
+         color: white;
+         }
+         .file-button:hover {
+         background: #5a6268;
+         }
+         .submit-button {
+         background: #007bff;
+         color: white;
+         width: 180px;
+         }
+         .submit-button:hover:not(:disabled) {
+         background: #0056b3;
+         }
+         .submit-button:disabled {
+         background: #cccccc;
+         color: #666666;
+         cursor: not-allowed;
+         }
+         .status {
+         min-height: 24px;
+         font-size: 14px;
+         color: #444;
+         }
+         .status.error { color: #b00020; }
+         .status.ok { color: #0a7a2f; }
+         .response-box {
+         flex: 1;
+         min-height: 180px;
+         border: 1px solid #d0d7de;
+         border-radius: 8px;
+         background: #fff;
+         overflow: auto;
+         padding: 16px;
+         font-size: 14px;
+         white-space: pre-wrap;
+         word-break: break-word;
+         }
+         input[type="file"] {
+         display: none;
+         }
+      </style>
+   </head>
+   <body>
+      <form class="full-form" id="cryptoForm" method="POST" action="">
+         <div class="top-bar">
+            <div class="form-group">
+               <label for="cipherMode">Mode:</label>
+               <select id="cipherMode" class="mode-select">
+                  <option value="CBC" selected>CBC</option>
+                  <option value="GCM">GCM</option>
+               </select>
+            </div>
+            <div class="form-group">
+               <label for="ivSize">IV (bytes):</label>
+               <select id="ivSize" class="iv-select">
+                  <option value="12">12</option>
+                  <option value="16">16</option>
+                  <option value="24">24</option>
+                  <option value="32">32</option>
+                  <option value="48">48</option>
+               </select>
+            </div>
+            <div class="form-group">
+               <label for="hexKey">AES-256 Key(HEX):</label>
+               <input
+                  type="text"
+                  id="hexKey"
+                  class="key-input"
+                  maxlength="64"
+                  autocomplete="off"
+                  spellcheck="false"
+                  inputmode="text"
+                  placeholder="BF9514A1BBFA307092C4971CBDE621BEE381BB00EF1B8841356A6428F5288B58"
+                  value="BF9514A1BBFA307092C4971CBDE621BEE381BB00EF1B8841356A6428F5288B58"
+                  />
+            </div>
+         </div>
+         <div class="file-area">
+            <input type="file" id="fileInput" accept=".wav,audio/wav" />
+            <div class="drop-zone" id="dropZone">
+               <div class="drop-zone-inner">
+                  <div>Drag and drop your WAV file here or select it using the button below</div>
+                  <div id="fileName" class="file-name">No file selected</div>
+               </div>
+            </div>
+            <div class="file-controls">
+               <button type="button" class="file-button" id="chooseFileButton">Select WAV file</button>
+               <button type="submit" class="submit-button" id="submitButton" disabled>Send</button>
+            </div>
+            <div id="status" class="status"></div>
+            <div id="responseBox" class="response-box"></div>
+         </div>
+      </form>
+      <script>
+         const form = document.getElementById('cryptoForm');
+         const fileInput = document.getElementById('fileInput');
+         const chooseFileButton = document.getElementById('chooseFileButton');
+         const dropZone = document.getElementById('dropZone');
+         const fileName = document.getElementById('fileName');
+         const cipherModeSelect = document.getElementById('cipherMode');
+         const ivSizeSelect = document.getElementById('ivSize');
+         const hexKeyInput = document.getElementById('hexKey');
+         const submitButton = document.getElementById('submitButton');
+         const statusBox = document.getElementById('status');
+         const responseBox = document.getElementById('responseBox');
 
-    <script>
-        const form = document.getElementById('uploadForm');
-        const fileInput = document.getElementById('fileInput');
-        const fileNameDisplay = document.getElementById('fileName');
-        const submitBtn = document.getElementById('submitBtn');
-        const dropZone = document.querySelector('.file-label');
+         function setStatus(text, type = '') {
+             statusBox.textContent = text;
+             statusBox.className = 'status' + (type ? ' ' + type : '');
+         }
 
+         function sanitizeHex(value) {
+             return value.replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+         }
 
-        function updateFileDisplay(file) {
-           if (file) {
-                fileNameDisplay.textContent = `Selected file name: ${file.name}`;
-                submitBtn.disabled = false;
-           } else {
-                fileNameDisplay.textContent = 'Select WAV file';
-                submitBtn.disabled = true;
-            }
-        }
+         function isFullHexKey(value) {
+             return /^[0-9A-F]{64}$/.test(value);
+         }
 
-    fileInput.addEventListener('change', function() {
-        updateFileDisplay(this.files[0]);
-    });
+         function syncIvWithMode() {
+             if (cipherModeSelect.value === 'CBC') {
+                 ivSizeSelect.value = '16';
+                 ivSizeSelect.disabled = true;
+             } else {
+                 ivSizeSelect.disabled = false;
+             }
+         }
 
-    ['dragenter', 'dragover'].forEach(eventName => {
-        dropZone.addEventListener(eventName, (e) => {
-            e.preventDefault();
-            dropZone.style.borderColor = '#007bff';
-            dropZone.style.background = '#f0f7ff';
-        }, false);
-    });
+         function updateFileDisplay(file) {
+             if (file) {
+                 fileName.textContent = `Selected file name: ${file.name}`;
+                 submitButton.disabled = false;
+             } else {
+                 fileName.textContent = 'Select WAV file';
+                 submitButton.disabled = true;
+             }
+         }
 
-    ['dragleave', 'drop'].forEach(eventName => {
-        dropZone.addEventListener(eventName, (e) => {
+         function getSelectedFile() {
+             return fileInput.files && fileInput.files.length ? fileInput.files[0] : null;
+         }
+
+         function updateFileName() {
+             const file = getSelectedFile();
+             fileName.textContent = file ? file.name : 'No file selected';
+         }
+
+         function updateSubmitState() {
+             const hasFile = !!getSelectedFile();
+             const hasFullKey = isFullHexKey(hexKeyInput.value.trim());
+             submitButton.disabled = !(hasFile && hasFullKey);
+         }
+
+         chooseFileButton.addEventListener('click', () => fileInput.click());
+
+         fileInput.addEventListener('change', () => {
+             updateFileName();
+             updateSubmitState();
+         });
+
+         dropZone.addEventListener('dragover', (e) => {
              e.preventDefault();
-             dropZone.style.borderColor = '#ccc';
-             dropZone.style.background = '#fff';
-        }, false);
-    });
+             dropZone.classList.add('dragover');
+         });
 
-    dropZone.addEventListener('drop', (e) => {
-        const dt = e.dataTransfer;
-        const files = dt.files;
-        if (files.length > 0 && files[0].name.endsWith('.wav')) {
-            fileInput.files = files;
-            updateFileDisplay(files[0]);
-        } else {
-            alert('Select .wav file');
-        }
-    });
+         dropZone.addEventListener('dragleave', () => {
+             dropZone.classList.remove('dragover');
+         });
 
+         dropZone.addEventListener('drop', (e) => {
+             e.preventDefault();
+             dropZone.classList.remove('dragover');
 
-    form.addEventListener('submit', function(e) {
-        e.preventDefault();
-        const file = fileInput.files[0];
-        if (!file) return;
-        submitBtn.disabled = true;
-        fileNameDisplay.textContent = 'Decrypting...';
+             const files = e.dataTransfer.files;
+             if (files && files.length > 0) {
+                 fileInput.files = files;
+                 updateFileName();
+                 updateSubmitState();
+             }
+         });
 
-        fetch('/wav/text/aes256_N-FSK/decrypter', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/octet-stream',
-                'X-File-Name': encodeURIComponent(file.name)
-            },
-            body: file
-        })
-        .then(response => {
-            if (!response.ok) {
-            return response.json().then(err => { throw new Error(err.error || 'Server error'); });
-        }
-        return response.blob();
-    })
-        .then(blob => {
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'decrypted_result.txt';
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            a.remove();
-            fileNameDisplay.textContent = 'File saved!';
-        })
-        .catch(error => {
-            console.error('Error:', error);
-            alert(`Ошибка: ${error.message}`);
-            updateFileDisplay(file);
-        })
-        .finally(() => {
-            submitBtn.disabled = false;
-        });
-    });
-    </script>
-</body>
+         hexKeyInput.addEventListener('input', () => {
+             const clean = sanitizeHex(hexKeyInput.value);
+             if (hexKeyInput.value !== clean) hexKeyInput.value = clean;
+             updateSubmitState();
+         });
+
+         hexKeyInput.addEventListener('paste', () => {
+             setTimeout(() => {
+                 const clean = sanitizeHex(hexKeyInput.value);
+                 if (hexKeyInput.value !== clean) hexKeyInput.value = clean;
+                 updateSubmitState();
+             }, 0);
+         });
+
+         cipherModeSelect.addEventListener('change', () => {
+             syncIvWithMode();
+         });
+
+         form.addEventListener('submit', async (event) => {
+             event.preventDefault();
+             const keyValue = hexKeyInput.value.trim();
+             const file = fileInput.files[0];
+
+             if (!file) {
+                 setStatus('First, select the WAV file', 'error');
+                 return;
+             }
+
+             if (!isFullHexKey(keyValue)) {
+                 setStatus('AES-256 key must be exactly 64 HEX characters long', 'error');
+                 return;
+             }
+
+             syncIvWithMode();
+             const mode = cipherModeSelect.value;
+             const ivSize = ivSizeSelect.value;
+
+             const url = `/wav/text/aes256_N-FSK/decrypter?mode=${encodeURIComponent(mode)}&iv=${encodeURIComponent(ivSize)}&key=${encodeURIComponent(keyValue)}`;
+
+             const response = fetch(url, {
+                     method: 'POST',
+                     headers: {
+                         'Content-Type': 'application/octet-stream',
+                         'X-File-Name': encodeURIComponent(file.name)
+                     },
+                     body: file
+                 }).then(response => {
+                     if (!response.ok) {
+                         return response.json().then(err => {
+                             throw new Error(err.error || 'Server error');
+                         });
+                     }
+                     return response.blob();
+                 }).then(blob => {
+                     blob.text().then(stringData => {
+                         setStatus("Decrypted successfully!");
+                         responseBox.textContent = stringData;
+                     })
+                 }).catch(error => {
+                     setStatus(`Error while decrypting: ${error.message}`);
+                     responseBox.textContent = "";
+                     updateFileDisplay(file);
+                 })
+                 .finally(() => {
+                     submitButton.disabled = false;
+                 });
+         });
+
+         syncIvWithMode();
+         updateFileName();
+         updateSubmitState();
+      </script>
+   </body>
 </html>

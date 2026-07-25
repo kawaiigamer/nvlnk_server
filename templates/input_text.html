@@ -1,203 +1,279 @@
 <!DOCTYPE html>
 <html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <title>Fullscreen input</title>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        html, body { width: 100%; height: 100%; overflow: hidden; font-family: sans-serif; }
-        .full-form { display: flex; flex-direction: column; width: 100vw; height: 100vh; }
-        .url-input-bar {
-            display: flex;
-            background: #eef2f5;
-            padding: 10px 20px;
-            border-bottom: 1px solid #ccc;
-            align-items: center;
-            gap: 15px;
-            flex-wrap: wrap;
-        }
-        .form-group { display: flex; align-items: center; gap: 8px; }
-        .form-group.url-group { flex-grow: 1; flex-shrink: 1; min-width: 250px; }
-        .form-group label { font-size: 14px; color: #333; font-weight: bold; white-space: nowrap; }
-        .input-container { display: flex; position: relative; width: 100%; }
-        .url-input { width: 100%; padding: 8px 35px 8px 12px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; outline: none; }
-        .preset-select { position: absolute; right: 0; top: 0; width: 35px; height: 100%; opacity: 0; cursor: pointer; }
-        .select-arrow { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #555; font-size: 12px; }
-        .mode-select { padding: 8px 12px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; outline: none; background: white; cursor: pointer; }
-        .form-group.key-group { flex-shrink: 0; }
-        .key-input {
-            width: 560px;
-            padding: 8px 10px;
-            font-size: 13.5px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            outline: none;
-            font-family: monospace;
-            letter-spacing: 0.5px;
-        }
-        .full-textarea { flex-grow: 1; width: 100%; border: none; padding: 20px; font-size: 18px; resize: none; outline: none; background: #f9f9f9; }
-        .full-button { width: 100%; height: 60px; background: #007bff; color: white; border: none; font-size: 20px; cursor: pointer; transition: all 0.2s; }
-        .full-button:hover:not(:disabled) { background: #0056b3; }
-        .full-button:disabled { background: #cccccc; color: #666666; cursor: not-allowed; }
-    </style>
-</head>
-<body>
-    <form class="full-form" id="cryptoForm" method="POST" action="">
-
-        <div class="url-input-bar">
+   <head>
+      <meta charset="UTF-8">
+      <title>Fullscreen input</title>
+      <style>
+         * { box-sizing: border-box; margin: 0; padding: 0; }
+         html, body { width: 100%; height: 100%; overflow: hidden; font-family: sans-serif; }
+         .full-form { display: flex; flex-direction: column; width: 100vw; height: 100vh; }
+         .url-input-bar {
+         display: flex;
+         background: #eef2f5;
+         padding: 10px 20px;
+         border-bottom: 1px solid #ccc;
+         align-items: center;
+         gap: 15px;
+         flex-wrap: wrap;
+         }
+         .form-group { display: flex; align-items: center; gap: 8px; }
+         .form-group.url-group { flex-grow: 1; flex-shrink: 1; min-width: 250px; }
+         .form-group label { font-size: 14px; color: #333; font-weight: bold; white-space: nowrap; }
+         .input-container { display: flex; position: relative; width: 100%; }
+         .url-input { width: 100%; padding: 8px 35px 8px 12px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; outline: none; }
+         .preset-select { position: absolute; right: 0; top: 0; width: 35px; height: 100%; opacity: 0; cursor: pointer; }
+         .select-arrow { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; color: #555; font-size: 12px; }
+         .mode-select { padding: 8px 12px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; outline: none; background: white; cursor: pointer; }
+         .form-group.key-group { flex-shrink: 0; }
+         .key-input {
+         width: 560px;
+         padding: 8px 10px;
+         font-size: 13.5px;
+         border: 1px solid #ccc;
+         border-radius: 4px;
+         outline: none;
+         font-family: monospace;
+         letter-spacing: 0.5px;
+         }
+         .full-textarea { flex-grow: 1; width: 100%; border: none; padding: 20px; font-size: 18px; resize: none; outline: none; background: #f9f9f9; }
+         .full-button { width: 100%; height: 60px; background: #007bff; color: white; border: none; font-size: 20px; cursor: pointer; transition: all 0.2s; }
+         .full-button:hover:not(:disabled) { background: #0056b3; }
+         .full-button:disabled { background: #cccccc; color: #666666; cursor: not-allowed; }
+      </style>
+   </head>
+   <body>
+      <form class="full-form" id="cryptoForm" method="POST" action="">
+         <div class="url-input-bar">
             <div class="form-group url-group">
-                <label for="urlParams"></label>
-                <div class="input-container">
-                    <input type="text" id="urlParams" class="url-input">
-                    <div class="select-arrow">▼</div>
-                    <select id="presetSelect" class="preset-select">
-                        <option value="lv=4&freq=48000&fssc=32&vssc=14&depth=8&dt=uint8">lv=4&freq=48000&fssc=32&vssc=14&depth=8&dt=uint8</option>
-                        <option value="lv=4&freq=48000&fssc=32&vssc=18&depth=16&dt=int16">lv=4&freq=48000&fssc=32&vssc=18&depth=16&dt=uint16</option>
-                        <option value="lv=8&freq=48000&fssc=16&vssc=6&depth=8&dt=uint8">lv=8&freq=48000&fssc=16&vssc=6&depth=8&dt=uint8</option>
-                        <option value="lv=8&freq=48000&fssc=8&vssc=3&depth=8&dt=uint8">lv=8&freq=48000&fssc=8&vssc=3&depth=8&dt=int8</option>
-                        <option value="lv=8&freq=48000&fssc=32&vssc=14&depth=8&dt=uint8">lv=8&freq=48000&fssc=32&vssc=14&depth=8&dt=uint8</option>
-                        <option value="lv=8&freq=48000&fssc=32&vssc=18&depth=16&dt=int16" selected>lv=8&freq=48000&fssc=32&vssc=18&depth=16&dt=int16</option>
-                        <option value="lv=16&freq=48000&fssc=32&vssc=18&depth=16&dt=int16">lv=16&freq=48000&fssc=32&vssc=18&depth=16&dt=int16</option>
-                        <option value="lv=32&freq=48000&fssc=32&vssc=18&depth=16&dt=int16">lv=32&freq=48000&fssc=32&vssc=18&depth=16&dt=int16</option>
-                        <option value="lv=32&freq=48000&fssc=16&vssc=6&depth=16&dt=int16">lv=32&freq=48000&fssc=16&vssc=6&depth=16&dt=int16</option>
-                        <option value="lv=32&freq=48000&fssc=8&vssc=3&depth=16&dt=int16">lv=32&freq=48000&fssc=8&vssc=3&depth=16&dt=int16</option>
+               <label for="urlParams"></label>
+               <div class="input-container">
+                  <input type="text" id="urlParams" class="url-input">
+                  <div class="select-arrow">▼</div>
+                  <select id="presetSelect" class="preset-select">
+                     <option value="lv=4&freq=48000&fssc=32&vssc=14&depth=8&dt=uint8">lv=4&freq=48000&fssc=32&vssc=14&depth=8&dt=uint8</option>
+                     <option value="lv=4&freq=48000&fssc=32&vssc=18&depth=16&dt=int16">lv=4&freq=48000&fssc=32&vssc=18&depth=16&dt=uint16</option>
+                     <option value="lv=8&freq=48000&fssc=16&vssc=6&depth=8&dt=uint8">lv=8&freq=48000&fssc=16&vssc=6&depth=8&dt=uint8</option>
+                     <option value="lv=8&freq=48000&fssc=8&vssc=3&depth=8&dt=uint8">lv=8&freq=48000&fssc=8&vssc=3&depth=8&dt=int8</option>
+                     <option value="lv=8&freq=48000&fssc=32&vssc=14&depth=8&dt=uint8">lv=8&freq=48000&fssc=32&vssc=14&depth=8&dt=uint8</option>
+                     <option value="lv=8&freq=48000&fssc=32&vssc=18&depth=16&dt=int16" selected>lv=8&freq=48000&fssc=32&vssc=18&depth=16&dt=int16</option>
+                     <option value="lv=16&freq=48000&fssc=32&vssc=18&depth=16&dt=int16">lv=16&freq=48000&fssc=32&vssc=18&depth=16&dt=int16</option>
+                     <option value="lv=32&freq=48000&fssc=32&vssc=18&depth=16&dt=int16">lv=32&freq=48000&fssc=32&vssc=18&depth=16&dt=int16</option>
+                     <option value="lv=32&freq=48000&fssc=16&vssc=6&depth=16&dt=int16">lv=32&freq=48000&fssc=16&vssc=6&depth=16&dt=int16</option>
+                     <option value="lv=32&freq=48000&fssc=8&vssc=3&depth=16&dt=int16">lv=32&freq=48000&fssc=8&vssc=3&depth=16&dt=int16</option>
 
-                        <option value="lv=64&freq=92880&fssc=36&vssc=18&depth=16&dt=int16">lv=64&freq=92880&fssc=36&vssc=18&depth=16&dt=int16</option>
+                     <option value="lv=64&freq=92880&fssc=36&vssc=18&depth=16&dt=int16">lv=64&freq=92880&fssc=36&vssc=18&depth=16&dt=int16</option>
 
-                        <option value="lv=4&freq=98000&fssc=40&vssc=16&depth=16&dt=int16">lv=4&freq=98000&fssc=40&vssc=16&depth=16&dt=int16</option>
-                        <option value="lv=4&freq=98000&fssc=16&vssc=6&depth=16&dt=int16">lv=4&freq=98000&fssc=16&vssc=6&depth=16&dt=int16</option>
-                        <option value="lv=4&freq=98000&fssc=40&vssc=16&depth=32&dt=int32">lv=4&freq=98000&fssc=40&vssc=16&depth=32&dt=int32</option>
-                        <option value="lv=4&freq=98000&fssc=16&vssc=6&depth=32&dt=int32">lv=4&freq=98000&fssc=16&vssc=6&depth=32&dt=int32</option>
+                     <option value="lv=4&freq=98000&fssc=40&vssc=16&depth=16&dt=int16">lv=4&freq=98000&fssc=40&vssc=16&depth=16&dt=int16</option>
+                     <option value="lv=4&freq=98000&fssc=16&vssc=6&depth=16&dt=int16">lv=4&freq=98000&fssc=16&vssc=6&depth=16&dt=int16</option>
+                     <option value="lv=4&freq=98000&fssc=40&vssc=16&depth=32&dt=int32">lv=4&freq=98000&fssc=40&vssc=16&depth=32&dt=int32</option>
+                     <option value="lv=4&freq=98000&fssc=16&vssc=6&depth=32&dt=int32">lv=4&freq=98000&fssc=16&vssc=6&depth=32&dt=int32</option>
+                     <option value="lv=8&freq=98000&fssc=40&vssc=16&depth=16&dt=int16">lv=8&freq=98000&fssc=40&vssc=16&depth=16&dt=int16</option>
+                     <option value="lv=8&freq=98000&fssc=16&vssc=6&depth=16&dt=int16">lv=8&freq=98000&fssc=16&vssc=6&depth=16&dt=int16</option>
+                     <option value="lv=8&freq=98000&fssc=40&vssc=16&depth=32&dt=int32">lv=8&freq=98000&fssc=40&vssc=16&depth=32&dt=int32</option>
+                     <option value="lv=8&freq=98000&fssc=16&vssc=6&depth=32&dt=int32">lv=8&freq=98000&fssc=16&vssc=6&depth=32&dt=int32</option>
+                     <option value="lv=16&freq=98000&fssc=40&vssc=16&depth=16&dt=int16">lv=16&freq=98000&fssc=40&vssc=16&depth=16&dt=int16</option>
+                     <option value="lv=16&freq=98000&fssc=16&vssc=6&depth=16&dt=int16">lv=16&freq=98000&fssc=16&vssc=6&depth=16&dt=int16</option>
+                     <option value="lv=16&freq=98000&fssc=40&vssc=16&depth=32&dt=int32">lv=16&freq=98000&fssc=40&vssc=16&depth=32&dt=int32</option>
+                     <option value="lv=16&freq=98000&fssc=16&vssc=6&depth=32&dt=int32">lv=16&freq=98000&fssc=16&vssc=6&depth=32&dt=int32</option>
+                     <option value="lv=16&freq=98000&fssc=8&vssc=3&depth=32&dt=int32">lv=16&freq=98000&fssc=8&vssc=3&depth=32&dt=int32</option>
+                     <option value="lv=32&freq=98000&fssc=56&vssc=22&depth=32&dt=int32">lv=32&freq=98000&fssc=56&vssc=22&depth=32&dt=int32</option>
+                     <option value="lv=32&freq=98000&fssc=40&vssc=22&depth=32&dt=int32">lv=32&freq=98000&fssc=40&vssc=22&depth=32&dt=int32</option>
+                     <option value="lv=32&freq=98000&fssc=16&vssc=10&depth=32&dt=int32">lv=32&freq=98000&fssc=16&vssc=10&depth=32&dt=int32</option>
+                     <option value="lv=64&freq=98000&fssc=56&vssc=22&depth=32&dt=int32">lv=64&freq=98000&fssc=56&vssc=22&depth=32&dt=int32</option>
+                     <option value="lv=64&freq=98000&fssc=16&vssc=6&depth=32&dt=int32">lv=64&freq=98000&fssc=16&vssc=6&depth=32&dt=int32</option>
+                     <option value="lv=64&freq=98000&fssc=8&vssc=5&depth=32&dt=int32">lv=64&freq=98000&fssc=8&vssc=5&depth=32&dt=int32</option>
+                     <option value="lv=128&freq=98000&fssc=40&vssc=16&depth=32&dt=int32">lv=128&freq=98000&fssc=40&vssc=16&depth=32&dt=int32</option>
+                     <option value="lv=128&freq=98000&fssc=16&vssc=6&depth=32&dt=int32">lv=128&freq=98000&fssc=16&vssc=6&depth=32&dt=int32</option>
+                     <option value="lv=128&freq=98000&fssc=8&vssc=5&depth=32&dt=int32">lv=128&freq=98000&fssc=8&vssc=5&depth=32&dt=int32</option>
+                     <option value="lv=256&freq=98000&fssc=40&vssc=16&depth=32&dt=int32">lv=256&freq=98000&fssc=40&vssc=16&depth=32&dt=int32</option>
+                     <option value="lv=256&freq=98000&fssc=16&vssc=6&depth=32&dt=int32">lv=256&freq=98000&fssc=16&vssc=6&depth=32&dt=int32</option>
+                     <option value="lv=256&freq=98000&fssc=8&vssc=3&depth=32&dt=int32">lv=256&freq=98000&fssc=8&vssc=3&depth=32&dt=int32</option>
 
-                        <option value="lv=8&freq=98000&fssc=40&vssc=16&depth=16&dt=int16">lv=8&freq=98000&fssc=40&vssc=16&depth=16&dt=int16</option>
-                        <option value="lv=8&freq=98000&fssc=16&vssc=6&depth=16&dt=int16">lv=8&freq=98000&fssc=16&vssc=6&depth=16&dt=int16</option>
-                        <option value="lv=8&freq=98000&fssc=40&vssc=16&depth=32&dt=int32">lv=8&freq=98000&fssc=40&vssc=16&depth=32&dt=int32</option>
-                        <option value="lv=8&freq=98000&fssc=16&vssc=6&depth=32&dt=int32">lv=8&freq=98000&fssc=16&vssc=6&depth=32&dt=int32</option>
+                     <option value="lv=128&freq=168000&fssc=32&vssc=18&depth=32&dt=int32">lv=128&freq=168000&fssc=32&vssc=18&depth=32&dt=int32</option>
+                     <option value="lv=128&freq=168000&fssc=16&vssc=6&depth=32&dt=int32">lv=128&freq=168000&fssc=16&vssc=6&depth=32&dt=int32</option>
+                     <option value="lv=128&freq=168000&fssc=8&vssc=3&depth=32&dt=int32">lv=128&freq=168000&fssc=8&vssc=3&depth=32&dt=int32</option>
+                     <option value="lv=128&freq=168000&fssc=8&vssc=5&depth=32&dt=int32">lv=128&freq=168000&fssc=8&vssc=5&depth=32&dt=int32</option>
 
-                        <option value="lv=16&freq=98000&fssc=40&vssc=16&depth=16&dt=int16">lv=16&freq=98000&fssc=40&vssc=16&depth=16&dt=int16</option>
-                        <option value="lv=16&freq=98000&fssc=16&vssc=6&depth=16&dt=int16">lv=16&freq=98000&fssc=16&vssc=6&depth=16&dt=int16</option>
-                        <option value="lv=16&freq=98000&fssc=40&vssc=16&depth=32&dt=int32">lv=16&freq=98000&fssc=40&vssc=16&depth=32&dt=int32</option>
-                        <option value="lv=16&freq=98000&fssc=16&vssc=6&depth=32&dt=int32">lv=16&freq=98000&fssc=16&vssc=6&depth=32&dt=int32</option>
-                        <option value="lv=16&freq=98000&fssc=8&vssc=3&depth=32&dt=int32">lv=16&freq=98000&fssc=8&vssc=3&depth=32&dt=int32</option>
-                        <option value="lv=32&freq=98000&fssc=56&vssc=22&depth=32&dt=int32">lv=32&freq=98000&fssc=56&vssc=22&depth=32&dt=int32</option>
-                        <option value="lv=32&freq=98000&fssc=40&vssc=22&depth=32&dt=int32">lv=32&freq=98000&fssc=40&vssc=22&depth=32&dt=int32</option>
-                        <option value="lv=32&freq=98000&fssc=16&vssc=10&depth=32&dt=int32">lv=32&freq=98000&fssc=16&vssc=10&depth=32&dt=int32</option>
-                        <option value="lv=64&freq=98000&fssc=56&vssc=22&depth=32&dt=int32">lv=64&freq=98000&fssc=56&vssc=22&depth=32&dt=int32</option>
-                        <option value="lv=64&freq=98000&fssc=16&vssc=6&depth=32&dt=int32">lv=64&freq=98000&fssc=16&vssc=6&depth=32&dt=int32</option>
-                        <option value="lv=64&freq=98000&fssc=8&vssc=5&depth=32&dt=int32">lv=64&freq=98000&fssc=8&vssc=5&depth=32&dt=int32</option>
-                        <option value="lv=128&freq=98000&fssc=40&vssc=16&depth=32&dt=int32">lv=128&freq=98000&fssc=40&vssc=16&depth=32&dt=int32</option>
-                        <option value="lv=128&freq=98000&fssc=16&vssc=6&depth=32&dt=int32">lv=128&freq=98000&fssc=16&vssc=6&depth=32&dt=int32</option>
-                        <option value="lv=128&freq=98000&fssc=8&vssc=5&depth=32&dt=int32">lv=128&freq=98000&fssc=8&vssc=5&depth=32&dt=int32</option>
-                        <option value="lv=256&freq=98000&fssc=40&vssc=16&depth=32&dt=int32">lv=256&freq=98000&fssc=40&vssc=16&depth=32&dt=int32</option>
-                        <option value="lv=256&freq=98000&fssc=16&vssc=6&depth=32&dt=int32">lv=256&freq=98000&fssc=16&vssc=6&depth=32&dt=int32</option>
-                        <option value="lv=256&freq=98000&fssc=8&vssc=3&depth=32&dt=int32">lv=256&freq=98000&fssc=8&vssc=3&depth=32&dt=int32</option>
-
-                        <option value="lv=128&freq=168000&fssc=32&vssc=18&depth=32&dt=int32">lv=128&freq=168000&fssc=32&vssc=18&depth=32&dt=int32</option>
-                        <option value="lv=128&freq=168000&fssc=16&vssc=6&depth=32&dt=int32">lv=128&freq=168000&fssc=16&vssc=6&depth=32&dt=int32</option>
-                        <option value="lv=128&freq=168000&fssc=8&vssc=3&depth=32&dt=int32">lv=128&freq=168000&fssc=8&vssc=3&depth=32&dt=int32</option>
-                        <option value="lv=128&freq=168000&fssc=8&vssc=5&depth=32&dt=int32">lv=128&freq=168000&fssc=8&vssc=5&depth=32&dt=int32</option>
-
-                        <option value="lv=256&freq=256000&ssc=64&vssc=48&depth=32&dt=int32">lv=256&freq=256000&ssc=64&vssc=48&depth=32&dt=int32</option>
-                        <option value="lv=256&freq=256000&ssc=32&vssc=20&depth=32&dt=int32">lv=256&freq=256000&ssc=32&vssc=20&depth=32&dt=int32</option>
-                        <option value="lv=256&freq=256000&fssc=16&vssc=10&depth=32&dt=int32">lv=256&freq=256000&fssc=16&vssc=10&depth=32&dt=int32</option>
-                        <option value="lv=256&freq=256000&fssc=8&vssc=3&depth=32&dt=int32">lv=256&freq=256000&fssc=8&vssc=3&depth=32&dt=int32</option>
-                        <option value="lv=256&freq=256000&fssc=8&vssc=5&depth=32&dt=int32">lv=256&freq=256000&fssc=8&vssc=5&depth=32&dt=int32</option>
-                    </select>
-                </div>
+                     <option value="lv=256&freq=256000&ssc=64&vssc=48&depth=32&dt=int32">lv=256&freq=256000&ssc=64&vssc=48&depth=32&dt=int32</option>
+                     <option value="lv=256&freq=256000&ssc=32&vssc=20&depth=32&dt=int32">lv=256&freq=256000&ssc=32&vssc=20&depth=32&dt=int32</option>
+                     <option value="lv=256&freq=256000&fssc=16&vssc=10&depth=32&dt=int32">lv=256&freq=256000&fssc=16&vssc=10&depth=32&dt=int32</option>
+                     <option value="lv=256&freq=256000&fssc=8&vssc=3&depth=32&dt=int32">lv=256&freq=256000&fssc=8&vssc=3&depth=32&dt=int32</option>
+                     <option value="lv=256&freq=256000&fssc=8&vssc=5&depth=32&dt=int32">lv=256&freq=256000&fssc=8&vssc=5&depth=32&dt=int32</option>
+                  </select>
+               </div>
             </div>
             <div class="form-group">
-                <label for="cipherMode">Mode:</label>
-                <select id="cipherMode" class="mode-select">
-                    <option value="CBC" selected>CBC</option>
-                    <option value="GCM">GCM</option>
-                </select>
+               <label for="cipherMode">Mode:</label>
+               <select id="cipherMode" class="mode-select">
+                  <option value="CBC" selected>CBC</option>
+                  <option value="GCM">GCM</option>
+               </select>
             </div>
             <div class="form-group">
-                <label for="ivSize">IV (bytes):</label>
-                <select id="ivSize" class="mode-select">
-                    <option value="12">12</option>
-                    <option value="16">16</option>
-                    <option value="24">24</option>
-                    <option value="32">32</option>
-                    <option value="48">48</option>
-                </select>
+               <label for="ivSize">IV (bytes):</label>
+               <select id="ivSize" class="mode-select">
+                  <option value="12">12</option>
+                  <option value="16">16</option>
+                  <option value="24">24</option>
+                  <option value="32">32</option>
+                  <option value="48">48</option>
+               </select>
+            </div>
+            <div class="form-group">
+               <label for="DNFSK">DNFSK:</label>
+               <select id="DNFSK" class="mode-select">
+                  <option value="" selected>false</option>
+                  <option value="dfsk=true&dfsk_min=2&dfsk_max=4">2 - 4</option>
+                  <option value="dfsk=true&dfsk_min=2&dfsk_max=8">2 - 8</option>
+                  <option value="dfsk=true&dfsk_min=2&dfsk_max=32">2 - 32</option>
+				  <option value="dfsk=true&dfsk_min=2&dfsk_max=64">2 - 64</option>
+				  <option value="dfsk=true&dfsk_min=2&dfsk_max=128">2 - 128</option>
+				  <option value="dfsk=true&dfsk_min=2&dfsk_max=256">2 - 256</option>
+				  
+                  <option value="dfsk=true&dfsk_min=4&dfsk_max=32">4 - 32</option>
+				  <option value="dfsk=true&dfsk_min=4&dfsk_max=128">4 - 128</option>
+				  <option value="dfsk=true&dfsk_min=4&dfsk_max=256">4 - 256</option>
+				  
+                  <option value="dfsk=true&dfsk_min=8&dfsk_max=32">8 - 32</option>                  
+                  <option value="dfsk=true&dfsk_min=8&dfsk_max=64">8 - 64</option>
+				  <option value="dfsk=true&dfsk_min=8&dfsk_max=128">8 - 128</option>
+				  <option value="dfsk=true&dfsk_min=8&dfsk_max=256">8 - 256</option>
+				  
+				  <option value="dfsk=true&dfsk_min=16&dfsk_max=32">16 - 32</option>
+				  <option value="dfsk=true&dfsk_min=16&dfsk_max=64">16 - 64</option>  
+                  <option value="dfsk=true&dfsk_min=16&dfsk_max=128">16 - 128</option>
+				  <option value="dfsk=true&dfsk_min=16&dfsk_max=256">16 - 256</option>
+				  
+                  <option value="dfsk=true&dfsk_min=32&dfsk_max=128">32 - 128</option>
+				  <option value="dfsk=true&dfsk_min=32&dfsk_max=256">32 - 256</option>
+				  
+				  <option value="dfsk=true&dfsk_min=64&dfsk_max=128">64 - 128</option>
+				  <option value="dfsk=true&dfsk_min=64&dfsk_max=256">64 - 256</option>
+				  
+				  <option value="dfsk=true&dfsk_min=128&dfsk_max=256">128 - 256</option>
+               </select>
+            </div>
+            <div class="form-group">
+               <label for="DSmooth">DSmooth:</label>
+               <select id="DSmooth" class="mode-select">
+                  <option value="" selected>false</option>
+                  <option value="dsm=true&dsm_min=1.0&dsm_max=1.2">1.0 - 1.2</option>
+                  <option value="dsm=true&dsm_min=1.0&dsm_max=1.4">1.0 - 1.4</option>
+                  <option value="dsm=true&dsm_min=1.0&dsm_max=1.6">1.0 - 1.6</option>
+                  <option value="dsm=true&dsm_min=1.0&dsm_max=1.8">1.0 - 1.8</option>
+                  <option value="dsm=true&dsm_min=1.0&dsm_max=2.0">1.0 - 2.0</option>
+                  <option value="dsm=true&dsm_min=1.0&dsm_max=2.2">1.0 - 2.2</option>
+				  <option value="dsm=true&dsm_min=1.0&dsm_max=3.5">1.0 - 3.5</option>
+                  <option value="dsm=true&dsm_min=1.0&dsm_max=4.0">1.0 - 4.0</option>
+				  <option value="dsm=true&dsm_min=1.0&dsm_max=5.0">1.0 - 5.0</option>
+
+                  <option value="dsm=true&dsm_min=2.0&dsm_max=2.4">2.0 - 2.4</option>
+                  <option value="dsm=true&dsm_min=2.0&dsm_max=2.7">2.0 - 2.7</option>
+                  <option value="dsm=true&dsm_min=2.0&dsm_max=2.8">2.0 - 2.8</option>
+                  <option value="dsm=true&dsm_min=2.0&dsm_max=3.0">2.0 - 3.0</option>
+                  
+                  <option value="dsm=true&dsm_min=2.0&dsm_max=5.0">2.0 - 5.0</option>
+                  <option value="dsm=true&dsm_min=3.0&dsm_max=5.0">3.0 - 5.0</option>
+				  <option value="dsm=true&dsm_min=3.0&dsm_max=3.5">3.0 - 3.5</option>
+                  <option value="dsm=true&dsm_min=3.0&dsm_max=4.0">3.0 - 4.0</option>
+               </select>
             </div>
             <div class="form-group key-group">
-                <label for="hexKey">AES-256 Key(HEX):</label>
-                <input type="text" id="hexKey" class="key-input" maxlength="64" value="BF9514A1BBFA307092C4971CBDE621BEE381BB00EF1B8841356A6428F5288B58" placeholder="BF9514A1BBFA307092C4971CBDE621BEE381BB00EF1B8841356A6428F5288B58" autocomplete="off">
+               <label for="hexKey">AES-256 Key(HEX):</label>
+               <input type="text" id="hexKey" class="key-input" maxlength="64" value="BF9514A1BBFA307092C4971CBDE621BEE381BB00EF1B8841356A6428F5288B58" placeholder="BF9514A1BBFA307092C4971CBDE621BEE381BB00EF1B8841356A6428F5288B58" autocomplete="off">
             </div>
-        </div>
+         </div>
+         <textarea class="full-textarea" id="textInput" name="text" placeholder="Text to encrypt"></textarea>
+         <button class="full-button" id="submitButton" type="submit" disabled>Send</button>
+      </form>
+      <script>
+            const form = document.getElementById('cryptoForm');
+            const urlParamsInput = document.getElementById('urlParams');            
+            const cipherModeSelect = document.getElementById('cipherMode');
+            const ivSizeSelect = document.getElementById('ivSize');
+            const hexKeyInput = document.getElementById('hexKey');
+            const textInput = document.getElementById('textInput');
+            const submitButton = document.getElementById('submitButton');
+			
+			const presetSelect = document.getElementById('presetSelect');
+            const nNfskSelect = document.getElementById('DNFSK');
+			const dSmoothSelect = document.getElementById('DSmooth');
+			
+			const presetOptionOrder = new Map([...presetSelect.options].map((option, index) => [option.value, index]));
+			const nNfskSelectOptionOrder = new Map([...nNfskSelect.options].map((option, index) => [option.value, index]));
+			const dSmoothSelectOptionOrder = new Map([...dSmoothSelect.options].map((option, index) => [option.value, index]));
+			
+			
+			function sortAnyOptions(sel, ord) {
+			    const options = [...sel.options];
+                const selectedValue = sel.value;
+                options.sort((a, b) =>
+                    ord.get(a.value) - ord.get(b.value)
+                );
+                sel.replaceChildren(...options);
+                sel.value = selectedValue;	
+			}
+            
+			sortAnyOptions(presetSelect, presetOptionOrder);
+			sortAnyOptions(nNfskSelect, nNfskSelectOptionOrder);
+			sortAnyOptions(dSmoothSelect, dSmoothSelectOptionOrder);	
 
-        <textarea class="full-textarea" id="textInput" name="text" placeholder="Text to encrypt"></textarea>
-        <button class="full-button" id="submitButton" type="submit" disabled>Send</button>
-    </form>
-
-    <script>
-        const form = document.getElementById('cryptoForm');
-        const urlParamsInput = document.getElementById('urlParams');
-        const presetSelect = document.getElementById('presetSelect');
-        const cipherModeSelect = document.getElementById('cipherMode');
-        const ivSizeSelect = document.getElementById('ivSize');
-        const hexKeyInput = document.getElementById('hexKey');
-        const textInput = document.getElementById('textInput');
-        const submitButton = document.getElementById('submitButton');
-
-        function validateForm() {
-            const hasText = textInput.value.trim().length > 0;
-            const keyLength = hexKeyInput.value.trim().length;
-            const hasIvSize = ivSizeSelect.value !== "";
-            submitButton.disabled = !(hasText && keyLength === 64 && hasIvSize);
-        }
-
-        function syncIvWithMode() {
-            if (cipherModeSelect.value === 'CBC') {
-                ivSizeSelect.value = '16';
-                ivSizeSelect.disabled = true;
-            } else {
-                ivSizeSelect.disabled = false;
-            }
-            validateForm();
-        }
-
-        hexKeyInput.addEventListener('input', function() {
-            this.value = this.value.replace(/[^0-9a-fA-F]/g, '');
-            validateForm();
-        });
-
-        textInput.addEventListener('input', validateForm);
-        ivSizeSelect.addEventListener('change', validateForm);
-        cipherModeSelect.addEventListener('change', syncIvWithMode);
-
-        presetSelect.addEventListener('change', function() {
-            if (this.value) {
-                urlParamsInput.value = this.value;
-                this.selectedIndex = 0;
-            }
-        });
-
-        form.addEventListener('submit', function(event) {
-            const textValue = textInput.value.trim();
-            const keyValue = hexKeyInput.value.trim();
-
-            if (!textValue) {
-                event.preventDefault();
-                alert('Please enter the text to encrypt');
-                return;
-            }
-            if (keyValue.length !== 64) {
-                event.preventDefault();
-                alert('The HEX key length must be exactly 64 characters (256 bits)');
-                return;
+            function validateForm() {
+                 const hasText = textInput.value.trim().length > 0;
+                 const keyLength = hexKeyInput.value.trim().length;
+                 const hasIvSize = ivSizeSelect.value !== "";
+                 submitButton.disabled = !(hasText && keyLength === 64 && hasIvSize);
             }
 
-            const params = urlParamsInput.value.trim();
-            const mode = cipherModeSelect.value;
-            const ivSize = ivSizeSelect.value;
-            form.action = `/wav/text/aes256_N-FSK/crypter?${params}&mode=${mode}&iv=${ivSize}&key=${keyValue}`;
-        });
+             function syncIvWithMode() {
+                 if (cipherModeSelect.value === 'CBC') {
+                     ivSizeSelect.value = '16';
+                     ivSizeSelect.disabled = true;
+                 } else {
+                     ivSizeSelect.disabled = false;
+                 }
+                 validateForm();
+             }
 
-        syncIvWithMode();
-        validateForm();
-    </script>
-</body>
+             hexKeyInput.addEventListener('input', function() {
+                 this.value = this.value.replace(/[^0-9a-fA-F]/g, '');
+                 validateForm();
+             });
+
+             textInput.addEventListener('input', validateForm);
+             ivSizeSelect.addEventListener('change', validateForm);
+             cipherModeSelect.addEventListener('change', syncIvWithMode);
+
+             presetSelect.addEventListener('change', function() {
+                 if (this.value) {
+                     urlParamsInput.value = this.value;
+                     this.selectedIndex = 0;
+                 }
+             });
+
+             form.addEventListener('submit', function(event) {
+                 const textValue = textInput.value.trim();
+                 const keyValue = hexKeyInput.value.trim();
+
+                 if (!textValue) {
+                     event.preventDefault();
+                     alert('Please enter the text to encrypt');
+                     return;
+                 }
+                 if (keyValue.length !== 64) {
+                     event.preventDefault();
+                     alert('The HEX key length must be exactly 64 characters (256 bits)');
+                     return;
+                 }
+
+                 const params = urlParamsInput.value.trim();
+                 const mode = cipherModeSelect.value;
+                 const ivSize = ivSizeSelect.value;
+                 form.action = `/wav/text/aes256_N-FSK/crypter?${params}&${nNfskSelect.value}&${dSmoothSelect.value}&mode=${mode}&iv=${ivSize}&key=${keyValue}`;
+             });
+
+             syncIvWithMode();
+             validateForm();
+      </script>
+   </body>
 </html>

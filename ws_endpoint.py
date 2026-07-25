@@ -1,12 +1,12 @@
 import argparse
+import traceback
 
 from functools import wraps
 
 from flask import Flask, request, Response, render_template
-from werkzeug.exceptions import InternalServerError
 
 from server_description import get_wav_params, get_aes_params, get_wav_fsk_params, get_system_info
-from server_audio import AsyncAudioStream, WavAudio, WavAudioNFSK, AESBase
+from server_audio import AsyncAudioStream, WavAudio, WavAudioNFSK, AESCrypterBase
 
 app = Flask(__name__)
 
@@ -17,7 +17,15 @@ def internal_server_error_throwable(f):
         try:
             return f(*args, **kwargs)
         except ValueError as ve:
-            raise InternalServerError(ve)
+            tb = ve.__traceback__
+            _, line_num, func_name, _ = traceback.extract_tb(tb)[-1]
+            while tb.tb_next:
+                tb = tb.tb_next
+            if instance := tb.tb_frame.f_locals.get('self'):
+                class_name = instance.__class__.__name__
+            else:
+                class_name = tb.tb_frame.f_locals.get('cls').__name__
+            return {"error": f"Internal Server Error! [{class_name}::{line_num}:{func_name}] {str(ve)}"}, 500
     return decorated_function
 
 
@@ -46,13 +54,13 @@ def wav_random_nfsk_stream():
 @app.route('/wav/random/aes256/stream')
 @internal_server_error_throwable
 def wav_random_aes256_stream():
-    return AsyncAudioStream(wav=WavAudio(**get_wav_params(request.args)), crypter=AESBase.from_config(get_aes_params(request.args)), req_range=request.range).start()
+    return AsyncAudioStream(wav=WavAudio(**get_wav_params(request.args)), crypter=AESCrypterBase.from_config(get_aes_params(request.args)), req_range=request.range).start()
 
 
 @app.route('/wav/random/aes256_N-FSK/stream')
 @internal_server_error_throwable
 def wav_random_aes256_nfsk_stream():
-    return AsyncAudioStream(wav=WavAudioNFSK(**get_wav_fsk_params(request.args)), crypter=AESBase.from_config(get_aes_params(request.args)), req_range=request.range).start()
+    return AsyncAudioStream(wav=WavAudioNFSK(**get_wav_fsk_params(request.args)), crypter=AESCrypterBase.from_config(get_aes_params(request.args)), req_range=request.range).start()
 
 
 app.config['LAST_PLAIN_TEXT_STR'] = ''
@@ -68,7 +76,7 @@ def wav_text_aes256_nfsk_crypter():
         if app.config['LAST_PLAIN_TEXT_STR']:
             aes_params["text"] = app.config['LAST_PLAIN_TEXT_STR']
             app.config['LAST_PLAIN_TEXT_STR'] = ''
-    return AsyncAudioStream(wav=WavAudioNFSK(**get_wav_fsk_params(request.args)), crypter=AESBase.from_config(aes_params), req_range=request.range).start()
+    return AsyncAudioStream(wav=WavAudioNFSK(**get_wav_fsk_params(request.args)), crypter=AESCrypterBase.from_config(aes_params), req_range=request.range).start()
 
 
 @app.route('/wav/text/aes256_N-FSK/crypter/form', methods=['GET'])
@@ -80,8 +88,8 @@ def wav_text_aes256_nfsk_crypter_form():
 @internal_server_error_throwable
 def wav_text_aes256_nfsk_decrypter():
     if request.method == 'GET':
-         return render_template('input_file.html')
-    return AsyncAudioStream(wav=WavAudioNFSK(**get_wav_fsk_params(request.args)), crypter=AESBase.from_config(get_aes_params(request.args))).wav_aes_nfsk_decrypt(request.data), 200
+        return render_template('input_file.html')
+    return AsyncAudioStream(wav=WavAudioNFSK(**get_wav_fsk_params(request.args)), crypter=AESCrypterBase.from_config(get_aes_params(request.args))).wav_aes_nfsk_decrypt(request.data), 200
 
 
 if __name__ == '__main__':
