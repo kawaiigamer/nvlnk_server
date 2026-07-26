@@ -21,14 +21,17 @@ curl -X GET http://{IP}:{PORT}/
 
 ## Endpoints
 ### wav
+___
 A  service for generating, transmitting, and decrypting `WAV` streams encoded with binary data (pre-encrypted using `AES-256` in `GCM`/`CBC` modes) using static or dynamic `N-FSK` modulation.\
 Supports arbitrary frequency, number of channels, and data formats for representing sampling widths (from `uint8` to `uint64` or `float64`).\
 Allows to create infinite audio streams based on random data, even with non-standard parameters (ex: `int64` per sample, more than different `64` channels or `MHz`+ sample rate value).
 
 ### tox
+___
 WIP.
 
 ### mesh
+___
 WIP.
 
 ## TODO, Features, Bugs, Changelog, etc

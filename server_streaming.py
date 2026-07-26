@@ -3,7 +3,7 @@ import datetime
 import uuid
 import json
 import math
-import os
+import inspect
 import random
 from datetime import datetime, timedelta
 import struct
@@ -12,13 +12,23 @@ import wave
 from itertools import count
 from typing import Optional, Generator, AsyncGenerator, Union, List, Iterable, Tuple, Type, Any, Dict
 
+from enum import Enum
 import numpy as np
-from flask import Response
+from flask import Response, stream_with_context
 
 from server_audio import WavAudio, WavAudioNFSK
 from server_cryptography import AESCrypterBase
 from server_logging import SimpleDebugOnlyLogger
-from server_description import _TIME_FMT
+
+
+class AsyncAudioStreamStatus(Enum):
+    UNKNOWN = 0
+    BASE_INITIALIZATED = 1
+    GENERATORS_INITIALIZATED = 2
+    RUNNING = 3
+    PAUSED_ONCE = 4
+    PAUSED = 5
+    STOPPED = 6
 
 
 class AsyncAudioStreamBase:
@@ -34,37 +44,25 @@ class AsyncAudioStreamBase:
 
 
 class AsyncAudioStream(AsyncAudioStreamBase):
-    def __init__(self, wav: Union[WavAudio, WavAudioNFSK], crypter: Optional[AESCrypterBase] = None, req_range = None,  debug: bool=True, **kwargs):
+    def __init__(self, wav: Union[WavAudio, WavAudioNFSK], crypter: Optional[AESCrypterBase] = None,
+                 debug: bool=True, supports_infinite_continue: bool = False, **kwargs):
         super().__init__(**kwargs)
         self.wav: Union[WavAudio, WavAudioNFSK] = wav
         self.frames_delay = 1
         self.crypter = crypter
         self.expected_frames_count = 0
-        self._req_range = req_range
         self.logger = SimpleDebugOnlyLogger(self.stream_uuid, io=print if debug else None)
         self.frame_body_length_without_aes_payload = self.wav.frame_length
-        self.sgw = None
-        self.sample_gen = None
-        self.asg = None
+        self.supports_infinite_continue: bool = supports_infinite_continue
+        self.generators_inited_at: datetime = datetime.min
+        self.status: AsyncAudioStreamStatus = AsyncAudioStreamStatus.BASE_INITIALIZATED
+
+    def is_deprecated(self, secs: timedelta) -> bool:
+        return (datetime.now() - self.generators_inited_at) > secs and self.status.value >= AsyncAudioStreamStatus.PAUSED_ONCE.value #and inspect.getgeneratorstate(self.sample_gen) == "GEN_CLOSED" if self.sample_gen else False
 
     @staticmethod
     def from_base(base: AsyncAudioStreamBase, **kwargs):
-        a =AsyncAudioStream(stream_uuid=base.stream_uuid, created_at=base.created_at, **kwargs)
-        print("FROM BASE",a.to_json())
-        return a
-
-    def _log_frame(self, frame_no: int, bits: np.ndarray, fsk_frame: np.ndarray, include_sync_symbols: bool = True) -> None:
-        out_io = self.logger.stream_msgs_block_gen(frame_no)
-        if not next(out_io):
-            return
-        out_io.send((f"Received {bits.size} bits for next frame(charset_len=2): ", self.wav.bits_array_to_str(bits, False)))
-        out_io.send((f"Received {bits.size} bits for next frame(charset_len={self.wav.fsk_level}): ", self.wav.bits_array_to_str(bits, False)))
-        out_io.send((f"Yielding {fsk_frame.nbytes} bytes for next FSK frame(without sync symbols)(charset_len=2): ", self.wav.fsk_frame_to_str(fsk_frame, False)))
-        out_io.send((f"Yielding {fsk_frame.nbytes} bytes for next FSK frame(without sync symbols)(charset_len={self.wav.fsk_level}): ", self.wav.fsk_frame_to_str(fsk_frame, False, True)))
-        if include_sync_symbols:
-            out_io.send((f"Yielding {fsk_frame.nbytes} bytes for next FSK frame(without sync symbols)(charset_len=2): ", self.wav.fsk_frame_to_str(fsk_frame, True)))
-            out_io.send((f"Yielding {fsk_frame.nbytes} bytes for next FSK frame(without sync symbols)(charset_len={self.wav.fsk_level}): ",  self.wav.fsk_frame_to_str(fsk_frame, True, True)))
-        out_io.close()
+        return AsyncAudioStream(stream_uuid=base.stream_uuid, created_at=base.created_at, **kwargs)
 
     def _init_generators(self) -> None:
         if self.crypter:
@@ -84,6 +82,22 @@ class AsyncAudioStream(AsyncAudioStreamBase):
                 self.sample_gen = self._random_fsk_frames_gen()
             else:
                 self.sample_gen = self._random_frames_gen()
+        self.logger.msg_lazy(lambda: f"Stream generators inited with config: {self.to_json()}")
+        self.generators_inited_at: datetime = datetime.now()
+        self.status = AsyncAudioStreamStatus.GENERATORS_INITIALIZATED
+
+    def _log_frame(self, frame_no: int, bits: np.ndarray, fsk_frame: np.ndarray, include_sync_symbols: bool = True) -> None:
+        out_io = self.logger.stream_msgs_block_gen(frame_no)
+        if not next(out_io):
+            return
+        out_io.send((f"Received {bits.size} bits for next frame(charset_len=2): ", self.wav.bits_array_to_str(bits, False)))
+        out_io.send((f"Received {bits.size} bits for next frame(charset_len={self.wav.fsk_level}): ", self.wav.bits_array_to_str(bits, False)))
+        out_io.send((f"Yielding {fsk_frame.nbytes} bytes for next FSK frame(without sync symbols)(charset_len=2): ", self.wav.fsk_frame_to_str(fsk_frame, False)))
+        out_io.send((f"Yielding {fsk_frame.nbytes} bytes for next FSK frame(without sync symbols)(charset_len={self.wav.fsk_level}): ", self.wav.fsk_frame_to_str(fsk_frame, False, True)))
+        if include_sync_symbols:
+            out_io.send((f"Yielding {fsk_frame.nbytes} bytes for next FSK frame(without sync symbols)(charset_len=2): ", self.wav.fsk_frame_to_str(fsk_frame, True)))
+            out_io.send((f"Yielding {fsk_frame.nbytes} bytes for next FSK frame(without sync symbols)(charset_len={self.wav.fsk_level}): ",  self.wav.fsk_frame_to_str(fsk_frame, True, True)))
+        out_io.close()
 
     def _padded_bits_gen(self, source_bits_array: np.ndarray, bits_per_iteration: int) -> Generator[np.ndarray, None, None]:
         source_bits_array_length = len(source_bits_array)
@@ -105,7 +119,7 @@ class AsyncAudioStream(AsyncAudioStreamBase):
                 counter += bits_per_iteration
                 yield padded_array
 
-    def _text_aes_crypted_fsk_frames_gen(self) -> Generator[bytes, None, None]:   #TODO
+    def _text_aes_crypted_fsk_frames_gen(self) -> Generator[bytes, None, None]:   #TODO TEST
         self.logger.msg_lazy(lambda: f"Received Plain Text: {self.logger.cut_seq_with_prefix(self.crypter.text, 32)}, Using {self.crypter.__class__.__name__},  Additional AES bytes count: {self.crypter.additional_payload_length}...")
         encrypted_text_bytes: bytes = self.crypter.encrypt(self.crypter.text)
         encrypted_text_bits: np.ndarray = self.wav.bytes_to_bits_array(encrypted_text_bytes)
@@ -244,42 +258,34 @@ class AsyncAudioStream(AsyncAudioStreamBase):
         # Converting bits sequence to bytes
         all_bytes: bytes = np.packbits(all_bits).tobytes()
         self.logger.msg(f"Concatenated bits sequence converted to bytes length: {len(all_bytes)}")
-        s
+
         # Decrypting bytes plain text
         return self.crypter.decrypt(all_bytes)
 
     def to_json(self) -> Dict[str, Any]:
-        return {**super().to_json(), "expected_frames_count": self.expected_frames_count,
+        return {**super().to_json(), "expected_frames_count": self.expected_frames_count, "status": str(self.status),
+                "supports_infinite_continue": self.supports_infinite_continue,
                 "wav": self.wav.to_json(), "crypter": self.crypter.to_json() if self.crypter else {}}
 
     async def _async_stream_generator(self) -> AsyncGenerator[bytes, None]:
-        self.logger.msg_lazy(lambda: f"Stream initiated with config: {self.to_json()}")
-        #if str(self._req_range) == "bytes=0-":
-        yield self.wav.create_wav_header(self.expected_frames_count)
 
-        # if self._req_range is None:
-        #     return
+        yield self.wav.create_wav_header(self.expected_frames_count)
 
 
         #yield self.wav.create_wav_header(self.expected_frames_count)
         for i in count(start=1):
             try:
                 yield next(self.sample_gen)
+                await asyncio.sleep(self.frames_delay)
             except StopIteration:
                 return
             if i == self.wav.duration:
                 return
-            await asyncio.sleep(self.frames_delay)
+
 
     def _sync_generator_wrapper(self) -> Generator[bytes, None, None]:
         loop = asyncio.new_event_loop()
-        if self.asg:
-            stream_gen = self.asg
-        else:
-            stream_gen = self._async_stream_generator()
-            self.asg = stream_gen
-        #self.asg = self._async_stream_generator()
-
+        stream_gen = self._async_stream_generator()
         try:
             while True:
                 try:
@@ -287,27 +293,36 @@ class AsyncAudioStream(AsyncAudioStreamBase):
                     yield chunk
                 except StopAsyncIteration:
                     break
+                except GeneratorExit:
+                    print("EXIT")
+                    break
         finally:
             loop.close()
 
+    def __make_paused(self) -> None:
+        if self.supports_infinite_continue:
+            self.status = AsyncAudioStreamStatus.PAUSED
+        else:
+            self.status = AsyncAudioStreamStatus.PAUSED_ONCE
+
+    def __make_stopped(self) -> None:
+        self.status = AsyncAudioStreamStatus.STOPPED
 
     def start(self, position: int = 0) -> Response:
         if self.wav.info_only:
             return Response(json.dumps(self.to_json(), indent=4, default=str, ensure_ascii=False), mimetype='application/json')
-        self.logger.msg(f"_req_range: {self._req_range}")
-        #if position == 0:
+
+        paused_once: bool = self.status == AsyncAudioStreamStatus.PAUSED_ONCE
         self._init_generators()
+        if self.status == AsyncAudioStreamStatus.GENERATORS_INITIALIZATED:
+            self.status = AsyncAudioStreamStatus.RUNNING
+        res = Response(stream_with_context(self._sync_generator_wrapper()), mimetype='audio/wav')
 
-        # if self._req_range is None:
-        #      return Response(self.wav.create_wav_header(), mimetype='audio/wav')
-        # if str(self._req_range) == "bytes=0-":
-        self.sgw = self._sync_generator_wrapper()
-        self.res = Response(self.sgw, mimetype='audio/wav') #=
-        return self.res
-
-    def continue_stream(self):
-        #print(f"{self.to_json()}")
-        return Response(self._sync_generator_wrapper(), mimetype='audio/wav') #=
+        if paused_once:
+            res.call_on_close(self.__make_stopped)
+        else:
+            res.call_on_close(self.__make_paused)
+        return res
 
 
 
