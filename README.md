@@ -1,6 +1,7 @@
 # ws-http-endpoint
 Custom `Flask` `HTTP` endpoint for default WS with external IP.
 
+❌ DO NOT USING THIS PROJECT IN PRODUCTION ❌
 ## Basic usage
 ### Startup
 ```
@@ -10,6 +11,7 @@ ws-http-endpoint
 
 options:
   -h, --help                show this help message and exit
+  -k KEY, --key             key for decrypting private data (AES-256 CBC). Recommended for production use only!
   -p PORT, --port PORT      port(default=60600)
   -d DEBUG, --debug DEBUG   enable debug mode(default=True)
 ```
@@ -28,13 +30,24 @@ Allows to create infinite audio streams based on random data, even with non-stan
 
 ### tox
 ___
-WIP.
+**WIP**
 
 ### mesh
 ___
-WIP.
+A service for remotely managing nodes in mesh networks, such as `meshtastic` or `meshcore`.
+
+Basic commands:
+- Get a list of known nodes
+- Send a message
+- Receive incoming messages
+- Get metrics for the node in use.
+
+### SMMSGateway
+___
+**WIP**
 
 ## TODO, Features, Bugs, Changelog, etc
+___
 ### WIP
 - Dynamic FSK & Smooth generation(decryption already supported).
 ### Features

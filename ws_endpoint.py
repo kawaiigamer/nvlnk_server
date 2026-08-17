@@ -9,7 +9,8 @@ from typing import Dict, Union
 
 from flask import Flask, request, Response, render_template, session
 
-from server_description import get_wav_params, get_aes_params, get_wav_fsk_params, get_system_info
+from server_description import get_wav_params, get_aes_params, get_wav_fsk_params, get_system_info, get_private_data
+from server_private import EndpointPrivateData
 from server_storage import StreamsStorage
 from server_streaming import AsyncAudioStream, AsyncAudioStreamBase, WavAudio, WavAudioNFSK, AESCrypterBase
 
@@ -17,6 +18,7 @@ app = Flask(__name__)
 app.permanent_session_lifetime = timedelta(seconds=10)
 app.secret_key = uuid.uuid4().hex
 streams_storage: StreamsStorage = StreamsStorage(clear_interval=timedelta(seconds=10), stream_lifetime=timedelta(seconds=10))
+private_data: EndpointPrivateData = get_private_data()
 
 
 def internal_server_error_throwable(f):
@@ -138,8 +140,9 @@ def wav_text_aes256_nfsk_decrypter():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="ws-http-endpoint")
+    parser.add_argument('-k', '--key', type=str, default="", help='Key for decrypting private data (AES-256 CBC)')
     parser.add_argument('-p', '--port', type=int, default=60600, help='port(default=%(default)s)')
     parser.add_argument("-d", "--debug", default=True, help="enable debug mode(default=%(default)s)")
     args = parser.parse_args()
-    print(streams_storage.start())
+    streams_storage.start()
     app.run(host='0.0.0.0', port=args.port, debug=args.debug, use_reloader=True)

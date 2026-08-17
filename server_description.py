@@ -1,13 +1,24 @@
 import json
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
-from typing import Union, List, Dict, Self, Optional, Any, Type
+from typing import Union, List, Dict, Self, Optional, Any, Type, Tuple
 
 import numpy as np
 
-_TOX_ID = "E7B2DD4DBF47295A58F372F5FA4A88CB655999D23ABE5415CF00E7400551A901A15477F334F2"
+from server_private import load_private_data, EndpointPrivateData
+
+
+__SECRET_KEY_256 = "898946929E5274DDE600CD7788B6C557377716197A59A6C5D9063A22C9E40741"
+PRIVATE_DATA: EndpointPrivateData = load_private_data(__SECRET_KEY_256)
 _TIME_FMT = "%d.%m.%y %H:%M:%S"
-_AES256_KEY = "BF9514A1BBFA307092C4971CBDE621BEE381BB00EF1B8841356A6428F5288B58"
+#_AES256_KEY = "BF9514A1BBFA307092C4971CBDE621BEE381BB00EF1B8841356A6428F5288B58"
+
+
+@dataclass
+class OrderedDataclass:
+
+    def to_dict(self):
+        return dict()
 
 
 class __DataclassEncoder(json.JSONEncoder):
@@ -21,13 +32,6 @@ class __DataclassEncoder(json.JSONEncoder):
         if isinstance(obj, bytes):
             return obj.hex().upper()
         return super().default(obj)
-
-
-@dataclass
-class OrderedDataclass:
-
-    def to_dict(self):
-        return dict()
 
 
 @dataclass
@@ -100,8 +104,7 @@ class Main(OrderedDataclass):
                 "running_time": self.running_time, "tox_id": self.tox_id,
                 "services": {k: v.to_dict() for k, v in self.services.items()}}
 
-
-
+#  ------------------------------------- wav  params -------------------------------------
 _wav_params_descr: List[Param] = [Param("ch", "channels", 2, "Channels count"), Param("depth", "channel_bit_depth", 16, "Channel depth in bits count"),
                                   Param("freq", "samples_rate", 44100, "Samples Rate"), Param("dt", "data_type", "int16", "Type for low level operations with samples")
                                   ]
@@ -116,7 +119,7 @@ _wav_dynamic_nfsk_params_descr: List[Param] = [Param("dfsk", "dynamic_fsk", "fal
                                                Param("dsm_min", "dynamic_smoothing_min", 1.0, "Min level for dynamic FSK"), Param("dsm_max", "dynamic_smoothing_max", 3.0, "Max level for dynamic FSK"),
                                                ]
 _wav_nfsk_decrypt_errors_descr: List[Param] = [Param("errors", "errors_mode", "ignore", "'ignore' - ignores any error, 'break' - interrupts decrypt process, 'skip' - skipping error frame, continuing to next frame")]
-_aes_params_descr: List[Param] = [Param("key", "key_str", _AES256_KEY, "256 bits key"), Param("mode", "mode", "CBC", "AES256 mode(GCM or CBC)"),
+_aes_params_descr: List[Param] = [Param("key", "key_str", PRIVATE_DATA.aes265_key, "256 bits key"), Param("mode", "mode", "CBC", "AES256 mode(GCM or CBC)"),
                                   Param("iv", "iv_length", 16, "Initialization Vector (IV) length in bytes"), Param("tag", "tag", "notag", "Authentication Tag(only for GCM mode)")
                                   ]
 _aes_text_params_descr: List[Param] = [Param("text", "text", "", "Plain text for encryption")]
@@ -139,7 +142,16 @@ _fsk_presets: Dict[str, int] = {
                                     "std96000_16vf": {"channels": 2, "channel_bit_depth": 16, "samples_rate": 96000, "value_symbol_samples_count": 64, "full_vs_symbol_samples_count": 160},  #600
                                     "std96000_32vf": {"channels": 2, "channel_bit_depth": 32, "data_type": "int32", "samples_rate": 96000, "value_symbol_samples_count": 64, "full_vs_symbol_samples_count": 160},
                                 }
-_endpoints: Dict[str, Union[RoutePart, EndpointPart]] = {"wav": RoutePart("Uncompressed audio",  {
+#  ------------------------------------- wav  params -------------------------------------
+
+#  ------------------------------------- meshtastic  params ------------------------------
+_meshtastic_node_descr: List[Param] = [Param("ID", "short_name", "", "If multiple nodes are connected, you MUST specify a 4-character callsign for a specific node. If only one node is connected, no explicit indication is required.")]
+_meshtastic_get_node_descr: List[Param] = [Param("count", "count", 250, "Number of requested nodes"), Param("save", "save", "true", "Save the result to internal storage")]
+#  ------------------------------------- meshtastic  params ------------------------------
+
+_endpoints: Dict[str, Union[RoutePart, EndpointPart]] = {
+                                            #  ------------------------------------- wav -------------------------------------
+                                            "wav": RoutePart("Uncompressed audio",  {
                                                                             "random": RoutePart("Streams using random data as source", {
                                                                             "stream": EndpointPart("Raw audio/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr + _wav_additional_params_descr),
                                                                             "aes256": RoutePart("AES-256(GCM/CBC) encoding", {
@@ -161,11 +173,17 @@ _endpoints: Dict[str, Union[RoutePart, EndpointPart]] = {"wav": RoutePart("Uncom
                                                                                                                                                   "Fully supports dynamic N-FSK, FSK config(level, symbols values) updates for each frame! Automatically detects all wav parameters(sample rate, channels, channel data type, etc)", "GET, POST", _wav_nfsk_params_descr + _wav_nfsk_level_params_descr + _wav_dynamic_nfsk_params_descr + _wav_nfsk_decrypt_errors_descr + _aes_params_descr + _aes_text_params_descr , post_params=_post_wav_file_params_descr),
                                                                                                                         }),
                                                                             },),
+                                #  ------------------------------------- wav -------------------------------------
 
-                                })
+                                #  ------------------------------------- meshtastic -------------------------------------
+                                "meshtastic": RoutePart("Meshtastic introduction service", {
+                                    "get_nodes": EndpointPart("Returns current node list json or error", "GET", _meshtastic_get_node_descr)})}
+                                #  ------------------------------------- meshtastic -------------------------------------
 
-              }
-_main = Main("yue-ws-main", "online", datetime.now(), "JST", _TOX_ID, _endpoints)
+
+                                )
+                                }
+_main = Main("yue-ws-main", "online", datetime.now(), "JST", PRIVATE_DATA.tox_id, _endpoints)
 
 
 def __get_params_from_request(args, params_descr: List[Param]) -> Optional[Dict[str, Any]]:
@@ -188,3 +206,7 @@ def get_aes_params(args) -> Optional[Dict[str, Any]]:
 
 def get_system_info() -> str:
     return json.dumps(_main, cls=__DataclassEncoder, indent=4, ensure_ascii=False)
+
+
+def get_private_data() -> EndpointPrivateData:
+    return PRIVATE_DATA
