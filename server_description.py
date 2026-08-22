@@ -7,11 +7,8 @@ import numpy as np
 
 from server_private import load_private_data, EndpointPrivateData
 
-
 __SECRET_KEY_256 = "898946929E5274DDE600CD7788B6C557377716197A59A6C5D9063A22C9E40741"
 PRIVATE_DATA: EndpointPrivateData = load_private_data(__SECRET_KEY_256)
-_TIME_FMT = "%d.%m.%y %H:%M:%S"
-#_AES256_KEY = "BF9514A1BBFA307092C4971CBDE621BEE381BB00EF1B8841356A6428F5288B58"
 
 
 @dataclass
@@ -97,7 +94,7 @@ class Main(OrderedDataclass):
 
     @property
     def started_time(self) -> str:
-        return self.started_at.strftime(_TIME_FMT)
+        return self.started_at.strftime(PRIVATE_DATA.detetime_fmt)
 
     def to_dict(self) -> Dict[str, Any]:
         return {"name": self.name, "status": self.status, "started_at": self.started_time, "timezone": self.timezone,
@@ -106,7 +103,8 @@ class Main(OrderedDataclass):
 
 #  ------------------------------------- wav  params -------------------------------------
 _wav_params_descr: List[Param] = [Param("ch", "channels", 2, "Channels count"), Param("depth", "channel_bit_depth", 16, "Channel depth in bits count"),
-                                  Param("freq", "samples_rate", 44100, "Samples Rate"), Param("dt", "data_type", "int16", "Type for low level operations with samples")
+                                  Param("freq", "samples_rate", 44100, "Samples Rate"), Param("dt", "data_type", "int16", "Type for low level operations with samples"),
+                                  #Param("lg", "logger", handler.logger, "Basing logger")
                                   ]
 _wav_duration_params_descr = [Param("t", "duration", 0, "Duration of stream in seconds, use 0 for unlimited stream")]
 _wav_nfsk_params_descr: List[Param] = [Param("fssc", "full_vs_symbol_samples_count", 196, "Samples count in seq of value+sync symbols"), Param("vssc", "value_symbol_samples_count", 68, "Samples count in seq of value symbol")]

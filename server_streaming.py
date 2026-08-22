@@ -18,7 +18,7 @@ from flask import Response, stream_with_context
 
 from server_audio import WavAudio, WavAudioNFSK
 from server_cryptography import AESCrypterBase
-from server_logging import SimpleDebugOnlyLogger
+from server_logging import SimpleDebugOnlyLogger, EndpointLogger
 
 
 class AsyncAudioStreamStatus(Enum):
@@ -32,9 +32,10 @@ class AsyncAudioStreamStatus(Enum):
 
 
 class AsyncAudioStreamBase:
-    def __init__(self, stream_uuid: str = "", **kwargs):
+    def __init__(self, logger: EndpointLogger, stream_uuid: str = "", **kwargs):
         self.stream_uuid: str = stream_uuid
         self.created_at: datetime = datetime.now()
+        self.logger = logger
 
     def to_json(self) -> Dict[str, Any]:
         return {"stream_uuid": self.stream_uuid, "created_at": self.created_at}
@@ -51,14 +52,14 @@ class AsyncAudioStream(AsyncAudioStreamBase):
         self.frames_delay = 1
         self.crypter = crypter
         self.expected_frames_count = 0
-        self.logger = SimpleDebugOnlyLogger(self.stream_uuid, io=print if debug else None)
+        self.io_logger = SimpleDebugOnlyLogger(self.stream_uuid, io=self.logger.debug if debug else None)
         self.frame_body_length_without_aes_payload = self.wav.frame_length
         self.supports_infinite_continue: bool = supports_infinite_continue
         self.generators_inited_at: datetime = datetime.min
         self.status: AsyncAudioStreamStatus = AsyncAudioStreamStatus.BASE_INITIALIZATED
 
     def is_deprecated(self, secs: timedelta) -> bool:
-        return (datetime.now() - self.generators_inited_at) > secs and self.status.value >= AsyncAudioStreamStatus.PAUSED_ONCE.value #and inspect.getgeneratorstate(self.sample_gen) == "GEN_CLOSED" if self.sample_gen else False
+        return (datetime.now() - self.generators_inited_at) > secs and self.status.value >= AsyncAudioStreamStatus.PAUSED_ONCE.value  #and inspect.getgeneratorstate(self.sample_gen) == "GEN_CLOSED" if self.sample_gen else False
 
     @staticmethod
     def from_base(base: AsyncAudioStreamBase, **kwargs):
@@ -82,12 +83,12 @@ class AsyncAudioStream(AsyncAudioStreamBase):
                 self.sample_gen = self._random_fsk_frames_gen()
             else:
                 self.sample_gen = self._random_frames_gen()
-        self.logger.msg_lazy(lambda: f"Stream generators inited with config: {self.to_json()}")
+        self.io_logger.msg_lazy(lambda: f"Stream generators inited with config: {self.to_json()}")
         self.generators_inited_at: datetime = datetime.now()
         self.status = AsyncAudioStreamStatus.GENERATORS_INITIALIZATED
 
     def _log_frame(self, frame_no: int, bits: np.ndarray, fsk_frame: np.ndarray, include_sync_symbols: bool = True) -> None:
-        out_io = self.logger.stream_msgs_block_gen(frame_no)
+        out_io = self.io_logger.stream_msgs_block_gen(frame_no)
         if not next(out_io):
             return
         out_io.send((f"Received {bits.size} bits for next frame(charset_len=2): ", self.wav.bits_array_to_str(bits, False)))
@@ -109,7 +110,7 @@ class AsyncAudioStream(AsyncAudioStreamBase):
             else:
                 sub_array = source_bits_array[counter:]
                 pad_bit = 0 if sub_array[-1] == 1 else 1
-                self.logger.msg_lazy(lambda: f"Padding last yielding bits seq with {bits_per_iteration - len(sub_array)} bits: {pad_bit}")
+                self.io_logger.msg_lazy(lambda: f"Padding last yielding bits seq with {bits_per_iteration - len(sub_array)} bits: {pad_bit}")
                 padded_array = np.pad(
                     sub_array,
                     pad_width=(0, bits_per_iteration - len(sub_array)),
@@ -120,12 +121,12 @@ class AsyncAudioStream(AsyncAudioStreamBase):
                 yield padded_array
 
     def _text_aes_crypted_fsk_frames_gen(self) -> Generator[bytes, None, None]:   #TODO TEST
-        self.logger.msg_lazy(lambda: f"Received Plain Text: {self.logger.cut_seq_with_prefix(self.crypter.text, 32)}, Using {self.crypter.__class__.__name__},  Additional AES bytes count: {self.crypter.additional_payload_length}...")
+        self.io_logger.msg_lazy(lambda: f"Received Plain Text: {self.io_logger.cut_seq_with_prefix(self.crypter.text, 32)}, Using {self.crypter.__class__.__name__},  Additional AES bytes count: {self.crypter.additional_payload_length}...")
         encrypted_text_bytes: bytes = self.crypter.encrypt(self.crypter.text)
         encrypted_text_bits: np.ndarray = self.wav.bytes_to_bits_array(encrypted_text_bytes)
         bits_as_full_symbols_in_frame: int = self.wav.frame_full_symbols_count*self.wav.bits_in_value_symbol
         self.expected_frames_count = math.ceil(len(encrypted_text_bits) / self.wav.frame_full_symbols_count / self.wav.bits_in_value_symbol)
-        self.logger.msg_lazy(lambda: f"AES crypted bytes: {self.logger.cut_seq_with_prefix(encrypted_text_bytes)}, AES crypted bits: {encrypted_text_bits}, "
+        self.io_logger.msg_lazy(lambda: f"AES crypted bytes: {self.io_logger.cut_seq_with_prefix(encrypted_text_bytes)}, AES crypted bits: {encrypted_text_bits}, "
                         f"Bits in frame(as full symbols): {bits_as_full_symbols_in_frame}, Expected frames count: {self.expected_frames_count}")
         yield
         for i, padded_bits_per_frame in enumerate(self._padded_bits_gen(encrypted_text_bits, bits_as_full_symbols_in_frame), 1):
@@ -147,8 +148,8 @@ class AsyncAudioStream(AsyncAudioStreamBase):
         for i in count(start=1):
             if self.wav.dynamic_fsk:
                 l, s = self.wav.set_random_smoothing_and_fsk_level()
-                self.logger.msg(f"New FSK level: {l}, New smoothing coff: {s}")
-                self.logger.msg_lazy(lambda: f"[sec={i}] Fsk level changed, new N-FSK config: {self.wav.to_json()}")
+                self.io_logger.msg(f"New FSK level: {l}, New smoothing coff: {s}")
+                self.io_logger.msg_lazy(lambda: f"[sec={i}] Fsk level changed, new N-FSK config: {self.wav.to_json()}")
             bits: np.ndarray = self.wav.create_random_bits_array(self.wav.frame_full_symbols_count*self.wav.bits_in_value_symbol)
             fsk_frame: np.ndarray = self.wav.create_fsk_frame(bits)
             self._log_frame(i, bits, fsk_frame, include_sync_symbols=False)
@@ -180,7 +181,7 @@ class AsyncAudioStream(AsyncAudioStreamBase):
             sample_byte_length = channels * channel_byte_length
             frame_byte_length = sample_byte_length * samples_rate
             frame_length_in_data_type = frame_byte_length // channel_byte_length
-            self.logger.msg_lazy(lambda: f'Wav header parsed params: { {"channels": channels, "channel_byte_length": channel_byte_length, "channel_bit_depth": channel_bit_depth,
+            self.io_logger.msg_lazy(lambda: f'Wav header parsed params: { {"channels": channels, "channel_byte_length": channel_byte_length, "channel_bit_depth": channel_bit_depth,
                                                                     "samples_rate": samples_rate, "sample_byte_length": sample_byte_length, "frame_byte_length": frame_byte_length,
                                                                     "frame_length_in_data_type": frame_length_in_data_type} }')
 
@@ -193,10 +194,10 @@ class AsyncAudioStream(AsyncAudioStreamBase):
                     _message = f"Unknown AudioFormat: {audio_format}"
                     if self.wav.errors_mode == "break":
                         raise ValueError(_message)
-                    self.logger.msg(f"{_message}, trying WAVE_FORMAT_PCM")
+                    self.io_logger.msg(f"{_message}, trying WAVE_FORMAT_PCM")
                 data_type_name = "uint8" if channel_byte_length == 1 else f"int{channel_bit_depth}"
             data_type: Type[np.integer, np.floating] = np.dtype(data_type_name).type
-            self.logger.msg(f"Using {data_type_name} as data type")
+            self.io_logger.msg(f"Using {data_type_name} as data type")
 
             # Converting raw wav data body to np.ndarray of detected data type
             wav_body: np.ndarray = np.frombuffer(wav_file.readframes(wav_file.getnframes()), dtype=data_type)
@@ -213,7 +214,7 @@ class AsyncAudioStream(AsyncAudioStreamBase):
                 frame_sync_symbol: data_type = frame_all_symbols[frame_all_symbols.size // 2]
                 frame_value_symbols: List[data_type] = list(np.delete(frame_all_symbols, frame_all_symbols.size // 2))
             else:
-                self.logger.msg("Sync symbol not found!")
+                self.io_logger.msg("Sync symbol not found!")
                 frame_sync_symbol = None
                 frame_value_symbols: List[data_type] = list(frame_all_symbols)
             frame_fsk_level = len(frame_value_symbols)
@@ -224,40 +225,40 @@ class AsyncAudioStream(AsyncAudioStreamBase):
                 if self.wav.errors_mode == "break":
                     raise ValueError(_message)
                 elif self.wav.errors_mode == "skip":
-                    self.logger.msg(f"{_message}, skipping current frame!")
+                    self.io_logger.msg(f"{_message}, skipping current frame!")
                     continue
                 else:
-                    self.logger.msg(f"{_message}, ignoring current frame!")
+                    self.io_logger.msg(f"{_message}, ignoring current frame!")
 
             frame_bits_in_value_symbol = int(math.log2(len(frame_value_symbols)))
-            self.logger.msg_lazy(lambda: f'[Frame={frame_counter}] N-FSK params: { {"fsk_level": frame_fsk_level, "bits_in_value_symbol": frame_bits_in_value_symbol,
+            self.io_logger.msg_lazy(lambda: f'[Frame={frame_counter}] N-FSK params: { {"fsk_level": frame_fsk_level, "bits_in_value_symbol": frame_bits_in_value_symbol,
                                                                                 "sync_symbol": frame_sync_symbol, "value_symbols": frame_value_symbols} }')
 
             # Extracting only value symbols sequence and converting its to bits
             frame_symbols_seq: np.ndarray = frame[np.concatenate(([True], frame[1:] != frame[:-1]))]
-            self.logger.msg(f"[Frame={frame_counter}] All detected symbols sequence length: {frame_symbols_seq.size}")
+            self.io_logger.msg(f"[Frame={frame_counter}] All detected symbols sequence length: {frame_symbols_seq.size}")
             if frame_sync_symbol is not None:
                 frame_symbols_seq = frame_symbols_seq[frame_symbols_seq != frame_sync_symbol]
-            self.logger.msg(f"[Frame={frame_counter}] All detected value symbols sequence length: {frame_symbols_seq.size}")
+            self.io_logger.msg(f"[Frame={frame_counter}] All detected value symbols sequence length: {frame_symbols_seq.size}")
             frame_bits_from_value_symbols: List[np.ndarray] = [np.fromiter(np.binary_repr(frame_value_symbols.index(s), width=frame_bits_in_value_symbol), dtype=int) for s in frame_symbols_seq]
             bits_summary += frame_bits_from_value_symbols
 
         # Concatenating all bit sequences from all frames
         all_bits: np.ndarray = np.concatenate(bits_summary)
-        self.logger.msg(f"Concatenated from all frames bits sequence length: {all_bits.size}")
+        self.io_logger.msg(f"Concatenated from all frames bits sequence length: {all_bits.size}")
 
         # Detecting bits padding and all unpadding bits sequence
         last_bit = all_bits[-1]
         unpadding_mask = (all_bits[::-1] == last_bit)
         same_bits_at_end = np.argmax(~unpadding_mask) if not np.all(unpadding_mask) else len(all_bits)
         if same_bits_at_end > PADDING_DETECTION_SAME_BITS_COUNT:
-            self.logger.msg(f"Concatenated bits sequence looks like padded, last {same_bits_at_end} has same value: {last_bit}")
+            self.io_logger.msg(f"Concatenated bits sequence looks like padded, last {same_bits_at_end} has same value: {last_bit}")
             all_bits = all_bits[:all_bits.size - same_bits_at_end]
-            self.logger.msg(f"Unpadded concatenated bits sequence length: {all_bits.size}")
+            self.io_logger.msg(f"Unpadded concatenated bits sequence length: {all_bits.size}")
 
         # Converting bits sequence to bytes
         all_bytes: bytes = np.packbits(all_bits).tobytes()
-        self.logger.msg(f"Concatenated bits sequence converted to bytes length: {len(all_bytes)}")
+        self.io_logger.msg(f"Concatenated bits sequence converted to bytes length: {len(all_bytes)}")
 
         # Decrypting bytes plain text
         return self.crypter.decrypt(all_bytes)
@@ -294,7 +295,7 @@ class AsyncAudioStream(AsyncAudioStreamBase):
                 except StopAsyncIteration:
                     break
                 except GeneratorExit:
-                    print("EXIT")
+                    self.io_logger.msg("Received GeneratorExit exception")
                     break
         finally:
             loop.close()

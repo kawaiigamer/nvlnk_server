@@ -1,11 +1,12 @@
 # ws-http-endpoint
 Custom `Flask` `HTTP` endpoint for default WS with external IP.
 
-❌ DO NOT USING THIS PROJECT IN PRODUCTION ❌
+❌ DO NOT USE THIS PROJECT IN PRODUCTION ❌
+
 ## Basic usage
 ### Startup
 ```
-python3 -m ws_endpoint.py [-h] [-p PORT] [-d DEBUG]
+python3 -m ws_endpoint.py [-h] [-k KEY] [-p PORT] [-d DEBUG]
 
 ws-http-endpoint
 
@@ -22,46 +23,51 @@ curl -X GET http://{IP}:{PORT}/
 ```
 
 ## Endpoints
-### wav
+### ✅wav
 ___
 A  service for generating, transmitting, and decrypting `WAV` streams encoded with binary data (pre-encrypted using `AES-256` in `GCM`/`CBC` modes) using static or dynamic `N-FSK` modulation.\
 Supports arbitrary frequency, number of channels, and data formats for representing sampling widths (from `uint8` to `uint64` or `float64`).\
 Allows to create infinite audio streams based on random data, even with non-standard parameters (ex: `int64` per sample, more than different `64` channels or `MHz`+ sample rate value).
 
-### tox
+### 🈳tox
 ___
-**WIP**
+🈳**WIP**
 
-### mesh
+### 🈸Mesh Networks
 ___
 A service for remotely managing nodes in mesh networks, such as `meshtastic` or `meshcore`.
-
+#### Meshtastic
 Basic commands:
-- Get a list of known nodes
-- Send a message
-- Receive incoming messages
-- Get metrics for the node in use.
-
-### SMMSGateway
+- 🈸Get a list of known nodes
+- 🈳Send a message
+- 🈳Receive incoming messages
+- 🈳Get metrics for the node in use.
+#### Meshcore
+🈳**WIP**
+### 🈳SMMSGateway
 ___
-**WIP**
+🈳**WIP**
 
 ## TODO, Features, Bugs, Changelog, etc
 ___
 ### WIP
-- Dynamic FSK & Smooth generation(decryption already supported).
+- 🈸Dynamic FSK & Smooth generation(decryption already supported).
 ### Features
+- ✅ ~~Adding central logging system.~~~~
 - _Different_ data for _different_ channels.
 - Detecting symbols by _intervals_, but not by single values while decryption.
-- ~~`/wav/text/aes256_N-FSK/decrypter`.~~
-- ~~Smoothing symbols values.~~
-- ~~Dynamic smoothing symbols values.~~
+- ✅ ~~`/wav/text/aes256_N-FSK/decrypter`.~~
+- ✅~~Smoothing symbols values.~~
+- ✅~~Dynamic smoothing symbols values.~~
 - _Negative_ smoothing symbols values.
 - Dynamic negative smoothing symbols values.
-- ~~Add dynamic FSK and dynamic smoothing to crypter form.~~
-- ~~Decryptor file size limit.~~
+- ✅~~Add dynamic FSK and dynamic smoothing to crypter form.~~
+- ✅ ~~Decryptor file size limit.~~
+- ✅ ~~Adding float as symbols.~~
 
 ### Bugs
-- Incorrect max value(+1) with 64 bit types in `_create_value_symbols`.
-- Browser requests twice same stream `request.range` 
-- `crypter` `POST` bug.
+- ✴️✅   ~~Incorrect max value(+1) with 64 bit types in `_create_value_symbols`.~~
+
+- ❌Browser requests twice same stream `request.range` 
+
+- ❌`crypter` `POST` bug.

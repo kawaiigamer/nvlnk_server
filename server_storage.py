@@ -5,6 +5,7 @@ from functools import wraps
 from typing import Callable, Dict, Union, Optional
 from datetime import timedelta
 
+from server_logging import EndpointLogger
 from server_streaming import AsyncAudioStream
 
 
@@ -17,8 +18,9 @@ def with_mutex(f):
 
 
 class StreamsStorage:
-    def __init__(self, clear_interval: timedelta, stream_lifetime: timedelta):
+    def __init__(self, clear_interval: timedelta, stream_lifetime: timedelta, logger: EndpointLogger):
         self.__storage_id: str = uuid.uuid4().hex
+        self.__logger = logger
         self.__clear_interval: float = clear_interval.total_seconds()
         self.__stream_lifetime: timedelta = stream_lifetime
         self.__event = threading.Event()
@@ -87,10 +89,10 @@ class StreamsStorage:
     def ___cleaner(self, dt: timedelta = None) -> None:
         real_lt: timedelta = dt if dt else self.__stream_lifetime
         for key in list(self.__streams_storage.keys()):
-            print(f"{key} -> sg {inspect.getgeneratorstate(self.__streams_storage[key].sample_gen)}, running: {self.__streams_storage[key].status}", flush=True)
+            self.__logger.debug(f"{key} -> sg {inspect.getgeneratorstate(self.__streams_storage[key].sample_gen)}, running: {self.__streams_storage[key].status}", flush=True)
             if self.__streams_storage[key].is_deprecated(real_lt):
                 del self.__streams_storage[key]
-                print(f"deleted {key}", flush=True)
+                self.__logger.debug(f"Deleted {key}")
 
     def __clear_worker(self) -> None:
         while not self.__event.wait(self.__clear_interval):

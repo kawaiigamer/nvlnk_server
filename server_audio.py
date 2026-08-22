@@ -6,6 +6,8 @@ from typing import Union, Tuple, List, Iterable, Dict, Any
 
 import numpy as np
 
+from server_logging import EndpointLogger
+
 
 class WavAudio:
     supported_data_types = ("int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64", "float16", "float32", "float64")
@@ -18,7 +20,8 @@ class WavAudio:
             raise ValueError(f"Divmod of {x_name} on {y_name_} must be integer({x}/{y}={r}+mod({r_mod}))")
         return r
 
-    def __init__(self, channels: int, channel_bit_depth: int, samples_rate: int, data_type: str = "int16", duration: int = 0, info_only: str = "false", **kwargs):
+    def __init__(self, logger: EndpointLogger, channels: int, channel_bit_depth: int, samples_rate: int, data_type: str = "int16", duration: int = 0, info_only: str = "false", **kwargs):
+        self.logger = logger
         self.info_only = info_only.lower() == 'true'
         self.channels = channels
         self.channel_bit_depth = channel_bit_depth
@@ -30,6 +33,7 @@ class WavAudio:
         try:
             self.data_type: Union[np.integer, np.floating] = np.dtype(data_type).type
         except TypeError:
+            self.logger.exception(f"Data type {data_type} is not supported, using int16 instead")
             self.data_type: Union[np.integer, np.floating] = np.dtype("int16").type
         self.data_type_info = np.finfo(self.data_type) if data_type.startswith("f") else np.iinfo(self.data_type)
         self.data_type_length: int = np.dtype(self.data_type).itemsize
@@ -90,15 +94,38 @@ class WavAudioNFSK(WavAudio):
     def _bits_seq_to_int(self, seq: Iterable[int]) -> int:
         return int("".join(str(bit) for bit in seq), 2)
 
-    def _create_value_symbols(self) -> Tuple[List[int], int]:
-        interval: Tuple[int, int] = (int(self.data_type_info.min), int(self.data_type_info.max))
-        values_range = (abs(interval[0]) + abs(interval[1]))/self.smoothing
-        if values_range < self.fsk_level:
-            raise ValueError(f"Levels count({self.fsk_level}) is bigger then values range({values_range}) for selected type({self.data_type})!")
-        sub_level = self.fsk_level // 2
-        symbols = [math.floor(values_range / self.fsk_level * i) for i in
-                   (range(0, self.fsk_level + 1) if interval[0] == 0 else range(-sub_level, sub_level + 1))]
-        return ([self.data_type(s) for s in symbols[:sub_level] + symbols[-sub_level:]], self.data_type(symbols[sub_level]))
+    # def _create_value_symbols(self) -> Tuple[List[Union[int, float]], Union[int, float]]:
+    #     interval: Tuple[int, int] = (int(self.data_type_info.min), int(self.data_type_info.max))
+    #     values_range = (abs(interval[0]) + abs(interval[1]))/self.smoothing
+    #     if values_range < self.fsk_level:
+    #         raise ValueError(f"Levels count({self.fsk_level}) is bigger then values range({values_range}) for selected type({self.data_type})!")
+    #     sub_level = self.fsk_level // 2
+    #     symbols = [math.floor(values_range / self.fsk_level * i) for i in
+    #                (range(0, self.fsk_level + 1) if interval[0] == 0 else range(-sub_level, sub_level + 1))]
+    #     # Special fix for 64 bit types
+    #     if np.dtype(self.data_type).itemsize == 8:
+    #         symbols[-1] -= 1
+    #     return ([self.data_type(s) for s in symbols[:sub_level] + symbols[-sub_level:]], self.data_type(symbols[sub_level]))
+
+    def _create_value_symbols(self) -> Tuple[List, float]:
+        sub_level =  self.fsk_level // 2
+        if np.issubdtype( self.data_type, np.integer):
+            info = np.iinfo( self.data_type)
+            # Для целых чисел linspace безопасен, так как нет бесконечностей
+            symbols = np.linspace(info.min, info.max,  self.fsk_level + 1, dtype= self.data_type)
+            center_symbol = symbols[sub_level]
+            result_symbols = np.concatenate((symbols[:sub_level], symbols[sub_level + 1:]))
+            return result_symbols.tolist(), float(center_symbol)
+        else:
+            info = np.finfo(self.data_type)
+            step = np.float64(info.max) / sub_level
+            indices = np.arange(-sub_level, sub_level + 1, dtype=np.float64)
+            symbols_64 = indices * step
+            symbols_64 = np.clip(symbols_64, info.min, info.max)
+            symbols = symbols_64.astype( self.data_type)
+            center_symbol = symbols[sub_level]
+            result_symbols = np.concatenate((symbols[:sub_level], symbols[sub_level + 1:]))
+            return result_symbols.tolist(), float(center_symbol)
 
     def __init__(self, fsk_level: int, full_vs_symbol_samples_count: int, value_symbol_samples_count: int,
                  dynamic_fsk: str = "false", dynamic_fsk_min: int = 0, dynamic_fsk_max: int = 0,
@@ -134,6 +161,7 @@ class WavAudioNFSK(WavAudio):
             self.set_random_smoothing_and_fsk_level()
         else:
             self.set_fsk_level(fsk_level, smoothing)
+        self.logger.debug(f"Initiated WavAudio {self.to_json()}")
 
     def set_fsk_level(self, new_fsk_level: int, new_smoothing: float = 1.0) -> None:
         if new_fsk_level not in self.supported_fsk_levels:
