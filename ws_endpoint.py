@@ -15,10 +15,18 @@ from yaml import load
 from server_description import get_wav_params, get_aes_params, get_wav_fsk_params, get_system_info, get_private_data
 from server_logging import DefaultLogger, EndpointLogger
 from server_meshtastic import meshtastic_get_nodes, meshtastic_save_dumped_nodes, meshtastic_json_format_dumped_nodes, \
-    MeshtasticKnownNode
+    MeshtasticKnownNode, meshtastic_send_message
 from server_private import EndpointPrivateData
 from server_storage import StreamsStorage
 from server_streaming import AsyncAudioStream, AsyncAudioStreamBase, WavAudio, WavAudioNFSK, AESCrypterBase
+
+
+HTTP_NOT_ACCEPTABLE = 406
+HTTP_CONTENT_TOO_LARGE = 413
+HTTP_MISDIRECTED_REQUEST = 421
+HTTP_CONFLICT = 409
+HTTP_OK = 200
+HTTP_NO_CONTENT = 204
 
 
 @dataclass
@@ -97,7 +105,7 @@ def internal_stream_session_handler(f):
 
 @app.route('/favicon.ico')
 def favicon():
-    return '', 204
+    return '', HTTP_NO_CONTENT
 
 
 @app.route("/")
@@ -176,8 +184,7 @@ def wav_text_aes256_nfsk_decrypter():
     return AsyncAudioStream(wav=WavAudioNFSK(**get_wav_fsk_params(request.args), logger=handler.logger), crypter=AESCrypterBase.from_config(get_aes_params(request.args)), logger=handler.logger).wav_aes_nfsk_decrypt(request.data), 200
 
 # -------------------- wav --------------------
-# -------------------- meshtastic -------------
-
+# -------------------- meshtastic --------------------
 
 @app.route('/meshtastic/get_nodes', methods=['GET'])
 #@authentication_required
@@ -185,31 +192,38 @@ def meshtastic_get_nodes_endpoint():
     available_nodes_count: int = len(handler.private_data.meshtastic_nodes)
     current_node = request.args.get("ID")
     if available_nodes_count > 1 and not current_node:
-        return "Node ID is not set", 409
+        return "Node ID is not set", HTTP_CONFLICT
     result: List[MeshtasticKnownNode] = meshtastic_get_nodes(logger=handler.logger, short_name=current_node, count=int(request.args.get("count", 250)))
     if request.args.get("save") == "true":
         meshtastic_save_dumped_nodes(result)
     return Response(meshtastic_json_format_dumped_nodes(result), mimetype='application/json')
 
+
 @app.route('/meshtastic/send_message', methods=['GET'])
 #@authentication_required
 def meshtastic_send_message_endpoint():
+    MAX_TEXT_LENGTH = 92
+    current_node = request.args.get("ID")
     if text:= request.args.get("text"):
-        pass
+        if len(text) > MAX_TEXT_LENGTH:
+            return f"Text message too large: {len(text)} > {MAX_TEXT_LENGTH}!", HTTP_CONTENT_TOO_LARGE
+        try:
+            meshtastic_send_message(handler.logger, text, int(request.args.get("ch", 0)), int(request.args.get("to", -1)), short_name=current_node)
+            return "", HTTP_OK
+        except ValueError:
+            msg = f"Channel index: {request.args.get("ch")} and destination id: {request.args.get("to")} must be integers!"
+            handler.logger.exception(msg)
+            return msg, HTTP_NOT_ACCEPTABLE
     else:
-        return "Message text not set", 421
+        return "Message text is not set", HTTP_MISDIRECTED_REQUEST
 
 
-
-# send_msg?msg= chat=
 # get_msgs?count last
 # get_metrics?last_hours= (def=24)
 
-# -------------------- meshtastic -------------
+# -------------------- meshtastic --------------------
+# -------------------- MAIN --------------------
 
-
-
-# -------------------- MAIN -------------
 def main() -> None:
     # --- Parse args
     parser = argparse.ArgumentParser(description="ws-http-endpoint")

@@ -21,6 +21,11 @@ options:
 ```
 curl -X GET http://{IP}:{PORT}/
 ```
+### If any endpoint needs authentication
+
+```
+curl -X GET http://{IP}:{PORT}/any/endpoint?param1=foo&param2=bar --cookie "access_key=7E74516EFA4FD55DE3E7CD017DF7D364D2DF7B94122740476DFBFB5F10523D6F"
+```
 
 ## Endpoints
 ### ✅wav
@@ -39,7 +44,7 @@ A service for remotely managing nodes in mesh networks, such as `meshtastic` or 
 #### Meshtastic
 Basic commands:
 - ✅ Get a list of known nodes
-- 🈳 Send a message
+- ✅ Send a message
 - 🈳 Receive incoming messages
 - 🈳 Get metrics for the node in use.
 #### Meshcore

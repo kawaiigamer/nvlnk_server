@@ -144,9 +144,9 @@ _fsk_presets: Dict[str, int] = {
 #  ------------------------------------- wav  params -------------------------------------
 
 #  ------------------------------------- meshtastic  params ------------------------------
-_meshtastic_node_id_descr: List[Param] = [Param("ID", "short_name", "", "If multiple nodes are connected, you MUST specify a 4-character callsign for a specific node. If only one node is connected, no explicit indication is required.")]
+_meshtastic_node_id_descr: List[Param] = [Param("ID", "short_name", "", "If multissage teple nodes are connected, you MUST specify a 4-character callsign for a specific node. If only one node is connected, no explicit indication is required.")]
 _meshtastic_get_node_descr: List[Param] = [Param("count", "count", 250, "Number of requested nodes"), Param("save", "save", "true", "Save the result to internal storage")]
-_meshtastic_send_message_descr: List[Param] = [Param("text", "text", "", "Sending message text"), Param("chat", "chat_id", "", "Specific chat id")]
+_meshtastic_send_message_descr: List[Param] = [Param("text", "text", "", "Sending text"), Param("ch", "channel_index", 0, "Channel index"), Param("to", "destinationIddestinationId", -1, "To send a message to a specific node, specify its ID")]
 #  ------------------------------------- meshtastic  params ------------------------------
 
 _endpoints: Dict[str, Union[RoutePart, EndpointPart]] = {

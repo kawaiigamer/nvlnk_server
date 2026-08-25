@@ -111,7 +111,7 @@ class MeshtasticWireHandle:
     def get_all_known_nodes_via_usb(self, dev_path: str = None, sync_tryes_count: int = 10, sync_try_sleep_sec: float = 1.0) -> List[MeshtasticKnownNode]:
         self.logger.debug(f"Trying connection to by wire - {dev_path if dev_path else "auto finding"}")
         try:
-            interface = SerialInterface(devPath=None)
+            interface = SerialInterface(devPath=dev_path)
 
             for i in range(sync_tryes_count):
                 if not interface.nodes:
@@ -190,6 +190,26 @@ class MeshtasticWireHandle:
             raise
         return known_nodes_list
 
+    def send_message(self, text: str, channel: int = 0, destinationId: int = -1, dev_path = None) -> None:
+        self.logger.debug(f"Trying connection to by wire - {dev_path if dev_path else "auto finding"}")
+        connected = False
+        try:
+            interface = SerialInterface(devPath=dev_path)
+            connected = True
+            self.logger.debug(f"Trying to send message Text: {text} Channel: {channel}, destinationId: {destinationId}")
+            if destinationId != -1:
+                interface.sendText(text, destinationId=destinationId)
+            else:
+                interface.sendText(text, channelIndex=channel)
+        except MeshtasticWireException as mwe:
+            self.logger.exception(f"MeshtasticWireException: {mwe}")
+            raise
+        else:
+            self.logger.info(f"Message: {text} sent!")
+        finally:
+            if connected:
+                interface.close()
+
 
 def meshtastic_get_nodes(logger: EndpointLogger, mac: Optional[str] = None, short_name: Optional[str] = None,
                          mac_name: Optional[str] = None, real_position: Optional[Tuple[float, float]] = None,
@@ -209,6 +229,9 @@ def meshtastic_save_dumped_nodes(nodes: List[MeshtasticKnownNode]):
         f.write(meshtastic_json_format_dumped_nodes(nodes))
 
 
+def meshtastic_send_message(logger: EndpointLogger, text: str, channel: int = 0, destinationId: int = -1, short_name: str = None):
+    handle = MeshtasticWireHandle(logger=logger)
+    handle.send_message(text, channel, destinationId)
 
 
 
