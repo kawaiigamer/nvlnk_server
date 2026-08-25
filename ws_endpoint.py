@@ -7,14 +7,15 @@ from dataclasses import dataclass
 from datetime import timedelta, datetime
 
 from functools import wraps
-from typing import Dict, Union
+from typing import Dict, Union, List
 
 from flask import Flask, request, Response, render_template, session
 from yaml import load
 
 from server_description import get_wav_params, get_aes_params, get_wav_fsk_params, get_system_info, get_private_data
 from server_logging import DefaultLogger, EndpointLogger
-from server_meshtastic import get_nodes
+from server_meshtastic import meshtastic_get_nodes, meshtastic_save_dumped_nodes, meshtastic_json_format_dumped_nodes, \
+    MeshtasticKnownNode
 from server_private import EndpointPrivateData
 from server_storage import StreamsStorage
 from server_streaming import AsyncAudioStream, AsyncAudioStreamBase, WavAudio, WavAudioNFSK, AESCrypterBase
@@ -46,6 +47,7 @@ def internal_server_error_throwable(f):
         try:
             return f(*args, **kwargs)
         except ValueError as ve:
+            handler.logger.exception("ValueError exception")
             tb = ve.__traceback__
             _, line_num, func_name, _ = traceback.extract_tb(tb)[-1]
             while tb.tb_next:
@@ -56,6 +58,18 @@ def internal_server_error_throwable(f):
                 class_name = tb.tb_frame.f_locals.get('cls').__name__
             return {"error": f"Internal Server Error! [{class_name}::{line_num}:{func_name}] {str(ve)}"}, 500
     return decorated_function
+
+
+def authentication_required(f):
+    @wraps(f)
+    def authentication_function(*args, **kwargs):
+        access_key = request.cookies.get("access_key")
+        if access_key == handler.private_data.access_key:
+            return f(*args, **kwargs)
+        else:
+            handler.logger.exception(f"Unauthorized client with access_key: {access_key}")
+            return "access_key is not valid", 401
+    return authentication_function
 
 
 def internal_stream_session_handler(f):
@@ -81,12 +95,13 @@ def internal_stream_session_handler(f):
     return decorated_stream_function
 
 
-@app.route('/favicon.ico') m
+@app.route('/favicon.ico')
 def favicon():
     return '', 204
 
 
 @app.route("/")
+#@authentication_required
 def main_page():
     return Response(get_system_info(), mimetype='application/json')
 
@@ -95,6 +110,7 @@ def main_page():
 @app.route('/wav/random/stream')
 @internal_server_error_throwable
 @internal_stream_session_handler
+#@authentication_required
 def wav_random_stream(stream: Union[AsyncAudioStream, AsyncAudioStreamBase]) -> AsyncAudioStream:
     if isinstance(stream, AsyncAudioStream):
         return stream
@@ -104,6 +120,7 @@ def wav_random_stream(stream: Union[AsyncAudioStream, AsyncAudioStreamBase]) -> 
 @app.route('/wav/random/N-FSK/stream')
 @internal_server_error_throwable
 @internal_stream_session_handler
+#@authentication_required
 def wav_random_nfsk_stream(stream: Union[AsyncAudioStream, AsyncAudioStreamBase]) -> AsyncAudioStream:
     if isinstance(stream, AsyncAudioStream):
         return stream
@@ -113,6 +130,7 @@ def wav_random_nfsk_stream(stream: Union[AsyncAudioStream, AsyncAudioStreamBase]
 @app.route('/wav/random/aes256/stream')
 @internal_server_error_throwable
 @internal_stream_session_handler
+#@authentication_required
 def wav_random_aes256_stream(stream: Union[AsyncAudioStream, AsyncAudioStreamBase]) -> AsyncAudioStream:
     if isinstance(stream, AsyncAudioStream):
         return stream
@@ -122,6 +140,7 @@ def wav_random_aes256_stream(stream: Union[AsyncAudioStream, AsyncAudioStreamBas
 
 @app.route('/wav/random/aes256_N-FSK/stream')
 @internal_server_error_throwable
+#@authentication_required
 def wav_random_aes256_nfsk_stream():
     return AsyncAudioStream(wav=WavAudioNFSK(**get_wav_fsk_params(request.args), logger=handler.logger), logger=handler.logger, crypter=AESCrypterBase.from_config(get_aes_params(request.args))).start()
 
@@ -129,6 +148,7 @@ def wav_random_aes256_nfsk_stream():
 app.config['LAST_PLAIN_TEXT_STR'] = ''
 @app.route('/wav/text/aes256_N-FSK/crypter', methods=['GET', 'POST'])
 @internal_server_error_throwable
+#@authentication_required
 def wav_text_aes256_nfsk_crypter():
     aes_params = get_aes_params(request.args)
     if request.method == 'POST':
@@ -142,12 +162,14 @@ def wav_text_aes256_nfsk_crypter():
 
 
 @app.route('/wav/text/aes256_N-FSK/crypter/form', methods=['GET'])
+#@authentication_required
 def wav_text_aes256_nfsk_crypter_form():
     return render_template('input_wav_text.html')
 
 
 @app.route('/wav/text/aes256_N-FSK/decrypter', methods=["GET", 'POST'])
 @internal_server_error_throwable
+#@authentication_required
 def wav_text_aes256_nfsk_decrypter():
     if request.method == 'GET':
         return render_template('input_wav_file.html')
@@ -158,8 +180,26 @@ def wav_text_aes256_nfsk_decrypter():
 
 
 @app.route('/meshtastic/get_nodes', methods=['GET'])
-def meshtastic_get_nodes():
-    return Response(get_nodes(logger=handler.logger), mimetype='application/json')
+#@authentication_required
+def meshtastic_get_nodes_endpoint():
+    available_nodes_count: int = len(handler.private_data.meshtastic_nodes)
+    current_node = request.args.get("ID")
+    if available_nodes_count > 1 and not current_node:
+        return "Node ID is not set", 409
+    result: List[MeshtasticKnownNode] = meshtastic_get_nodes(logger=handler.logger, short_name=current_node, count=int(request.args.get("count", 250)))
+    if request.args.get("save") == "true":
+        meshtastic_save_dumped_nodes(result)
+    return Response(meshtastic_json_format_dumped_nodes(result), mimetype='application/json')
+
+@app.route('/meshtastic/send_message', methods=['GET'])
+#@authentication_required
+def meshtastic_send_message_endpoint():
+    if text:= request.args.get("text"):
+        pass
+    else:
+        return "Message text not set", 421
+
+
 
 # send_msg?msg= chat=
 # get_msgs?count last

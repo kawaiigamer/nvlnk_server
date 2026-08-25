@@ -83,6 +83,7 @@ class Main(OrderedDataclass):
     started_at: datetime
     timezone: str
     tox_id: str
+    meshtatic_nodes_names: List [str]
     services: Dict[str, Union[RoutePart, EndpointPart]]
 
     @property
@@ -99,12 +100,12 @@ class Main(OrderedDataclass):
     def to_dict(self) -> Dict[str, Any]:
         return {"name": self.name, "status": self.status, "started_at": self.started_time, "timezone": self.timezone,
                 "running_time": self.running_time, "tox_id": self.tox_id,
+                "meshtatic_nodes_names": self.meshtatic_nodes_names,
                 "services": {k: v.to_dict() for k, v in self.services.items()}}
 
 #  ------------------------------------- wav  params -------------------------------------
 _wav_params_descr: List[Param] = [Param("ch", "channels", 2, "Channels count"), Param("depth", "channel_bit_depth", 16, "Channel depth in bits count"),
                                   Param("freq", "samples_rate", 44100, "Samples Rate"), Param("dt", "data_type", "int16", "Type for low level operations with samples"),
-                                  #Param("lg", "logger", handler.logger, "Basing logger")
                                   ]
 _wav_duration_params_descr = [Param("t", "duration", 0, "Duration of stream in seconds, use 0 for unlimited stream")]
 _wav_nfsk_params_descr: List[Param] = [Param("fssc", "full_vs_symbol_samples_count", 196, "Samples count in seq of value+sync symbols"), Param("vssc", "value_symbol_samples_count", 68, "Samples count in seq of value symbol")]
@@ -143,8 +144,9 @@ _fsk_presets: Dict[str, int] = {
 #  ------------------------------------- wav  params -------------------------------------
 
 #  ------------------------------------- meshtastic  params ------------------------------
-_meshtastic_node_descr: List[Param] = [Param("ID", "short_name", "", "If multiple nodes are connected, you MUST specify a 4-character callsign for a specific node. If only one node is connected, no explicit indication is required.")]
+_meshtastic_node_id_descr: List[Param] = [Param("ID", "short_name", "", "If multiple nodes are connected, you MUST specify a 4-character callsign for a specific node. If only one node is connected, no explicit indication is required.")]
 _meshtastic_get_node_descr: List[Param] = [Param("count", "count", 250, "Number of requested nodes"), Param("save", "save", "true", "Save the result to internal storage")]
+_meshtastic_send_message_descr: List[Param] = [Param("text", "text", "", "Sending message text"), Param("chat", "chat_id", "", "Specific chat id")]
 #  ------------------------------------- meshtastic  params ------------------------------
 
 _endpoints: Dict[str, Union[RoutePart, EndpointPart]] = {
@@ -175,13 +177,18 @@ _endpoints: Dict[str, Union[RoutePart, EndpointPart]] = {
 
                                 #  ------------------------------------- meshtastic -------------------------------------
                                 "meshtastic": RoutePart("Meshtastic introduction service", {
-                                    "get_nodes": EndpointPart("Returns current node list json or error", "GET", _meshtastic_get_node_descr)})}
+                                    "get_nodes": EndpointPart("Returns current node list json or error", "GET", _meshtastic_node_id_descr + _meshtastic_get_node_descr),
+                                    "send_message": EndpointPart("Send message to any chat", "GET", _meshtastic_get_node_descr + _meshtastic_send_message_descr)})
+
+
+                                }
+
                                 #  ------------------------------------- meshtastic -------------------------------------
 
 
                                 )
                                 }
-_main = Main("yue-ws-main", "online", datetime.now(), "JST", PRIVATE_DATA.tox_id, _endpoints)
+_main = Main("yue-ws-main", "online", datetime.now(), "JST", PRIVATE_DATA.tox_id, [node.short_name for node in PRIVATE_DATA.meshtastic_nodes], _endpoints)
 
 
 def __get_params_from_request(args, params_descr: List[Param]) -> Optional[Dict[str, Any]]:

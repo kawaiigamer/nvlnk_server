@@ -38,10 +38,10 @@ ___
 A service for remotely managing nodes in mesh networks, such as `meshtastic` or `meshcore`.
 #### Meshtastic
 Basic commands:
-- 🈸Get a list of known nodes
-- 🈳Send a message
-- 🈳Receive incoming messages
-- 🈳Get metrics for the node in use.
+- ✅ Get a list of known nodes
+- 🈳 Send a message
+- 🈳 Receive incoming messages
+- 🈳 Get metrics for the node in use.
 #### Meshcore
 🈳**WIP**
 ### 🈳SMMSGateway
@@ -53,21 +53,19 @@ ___
 ### WIP
 - 🈸Dynamic FSK & Smooth generation(decryption already supported).
 ### Features
-- ✅ ~~Adding central logging system.~~~~
-- _Different_ data for _different_ channels.
-- Detecting symbols by _intervals_, but not by single values while decryption.
-- ✅ ~~`/wav/text/aes256_N-FSK/decrypter`.~~
-- ✅~~Smoothing symbols values.~~
-- ✅~~Dynamic smoothing symbols values.~~
-- _Negative_ smoothing symbols values.
-- Dynamic negative smoothing symbols values.
-- ✅~~Add dynamic FSK and dynamic smoothing to crypter form.~~
+- ✅ ~~Adding central logging system.~~
+- 🈳 _Different_ data for _different_ channels.
+- 🈳 Detecting symbols by _intervals_, but not by single values while decryption.
+- ✅ ~~`/wav/text/aes256_N-FSK/decrypter`~~.
+- ✅ ~~Smoothing symbols values.~~
+- ✅ ~~Dynamic smoothing symbols values.~~
+- 🈳 _Negative_ smoothing symbols values.
+- 🈳 Dynamic negative smoothing symbols values.
+- ✅ ~~Add dynamic FSK and dynamic smoothing to crypter form.~~
 - ✅ ~~Decryptor file size limit.~~
 - ✅ ~~Adding float as symbols.~~
 
 ### Bugs
-- ✴️✅   ~~Incorrect max value(+1) with 64 bit types in `_create_value_symbols`.~~
-
-- ❌Browser requests twice same stream `request.range` 
-
-- ❌`crypter` `POST` bug.
+- ✴️✅ ~~Incorrect max value(+1) with 64 bit types in `_create_value_symbols`.~~
+- ❌ Browser requests twice same stream `request.range` 
+- ❌ `crypter` `POST` bug.

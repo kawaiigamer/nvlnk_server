@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import threading
 import time
 import uuid
@@ -187,13 +188,26 @@ class MeshtasticWireHandle:
         except Exception as e:
             self.logger.exception(f"Exception: {e}")
             raise
+        return known_nodes_list
 
 
-def get_nodes(logger: EndpointLogger,mac: Optional[str] = None, short_name: Optional[str] = None,
-              mac_name: Optional[str] = None, real_position: Optional[Tuple[float, float]] = None) -> Optional[List[MeshtasticKnownNode]]:
+def meshtastic_get_nodes(logger: EndpointLogger, mac: Optional[str] = None, short_name: Optional[str] = None,
+                         mac_name: Optional[str] = None, real_position: Optional[Tuple[float, float]] = None,
+                         count:int = 250) -> Optional[List[MeshtasticKnownNode]]:
     handle = MeshtasticWireHandle(name=short_name, real_position=real_position, mac_address=mac, logger=logger)
     nodes: List[MeshtasticKnownNode] = handle.get_all_known_nodes_via_usb()
     return nodes
+
+
+def meshtastic_json_format_dumped_nodes(nodes: List[MeshtasticKnownNode]) -> str:
+    return f'[{",\n".join([node.to_json_str() for node in nodes])}]'
+
+
+def meshtastic_save_dumped_nodes(nodes: List[MeshtasticKnownNode]):
+    os.makedirs("./meshtastic_data", exist_ok=True)
+    with open(f"./meshtastic_data/known_nodes_dump_{datetime.now().strftime("%d.%m.%y_%H-%M-%S")}.json", "w+") as f:
+        f.write(meshtastic_json_format_dumped_nodes(nodes))
+
 
 
 
@@ -204,6 +218,6 @@ if __name__ == "__main__":
     NRTR_MAC_NAME = "NRTR_1804"
     NRTR_POSITION = (60.032861, 30.345513)
 
-    handle = MeshtasticWireHandle(real_position=NRTR_POSITION)
+#    handle = MeshtasticWireHandle(real_position=NRTR_POSITION)
 
 
