@@ -9,6 +9,9 @@ import numpy as np
 
 from server_private import EndpointPrivateData
 
+_RUNTIME_LOGS_PATH = "./runtime_logs"
+
+
 
 class EndpointLogger:
     def debug(self, str):
@@ -79,9 +82,9 @@ class SimpleDebugOnlyLogger:
 
 class DefaultLogger(EndpointLogger):
     def __init__(self, private_config: EndpointPrivateData):
-        os.makedirs("./runtime_logs", exist_ok=True)
+        os.makedirs(_RUNTIME_LOGS_PATH, exist_ok=True)
         log_filename = datetime.now().strftime(private_config.detetime_fmt).replace(":", "-")
-        logger_file_path = f"./runtime_logs/{private_config.logger_name}_{log_filename}.log"
+        logger_file_path = f"{_RUNTIME_LOGS_PATH}/{private_config.logger_name}_{log_filename}.log"
         logging.basicConfig(
             level=logging.DEBUG,
             datefmt=private_config.detetime_fmt,

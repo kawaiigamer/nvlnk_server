@@ -4,7 +4,7 @@ from typing import Tuple, List
 
 from server_cryptography import AESCrypterCBC
 
-__PRIVATE_STORAGE__PATH = "./private/server_private.bin"
+_PRIVATE_STORAGE_FILE_PATH = "./private/server_private.bin"
 
 
 @dataclass(frozen=True)
@@ -18,8 +18,11 @@ class MeshtasticNodePrivateData:
 @dataclass(frozen=True)
 class EndpointPrivateData:
     version: float
+    release_type: str
     default_session_lifetime_seconds: int
     tox_id: str
+    tox_profile_name: str
+    tox_profile_password: str
     aes265_key: str
     access_key: str
     detetime_fmt: str
@@ -33,13 +36,13 @@ def save_private_data(data: EndpointPrivateData, secret_key: str) -> None:
     plain_text_bytes = json_str.encode('utf-8')
     cipher = AESCrypterCBC(key_str=secret_key, iv_length=16)
     encrypted_bytes = cipher.encrypt(plain_text_bytes)
-    with open(__PRIVATE_STORAGE__PATH, "wb") as f:
+    with open(_PRIVATE_STORAGE_FILE_PATH, "wb") as f:
             f.write(encrypted_bytes)
 
 
 def load_private_data(secret_key: str) -> EndpointPrivateData:
     cipher = AESCrypterCBC(key_str=secret_key, iv_length=16)
-    with open(__PRIVATE_STORAGE__PATH, "rb") as f:
+    with open(_PRIVATE_STORAGE_FILE_PATH, "rb") as f:
             json_data = json.loads(cipher.decrypt(f.read()))
             if json_data.get('meshtastic_nodes') is not None:
                 json_data['meshtastic_nodes'] = [
@@ -48,8 +51,9 @@ def load_private_data(secret_key: str) -> EndpointPrivateData:
             return EndpointPrivateData(**json_data)
 
 
-__EXAMPLE = EndpointPrivateData(version=0.030, default_session_lifetime_seconds=10,
+__EXAMPLE = EndpointPrivateData(version=0.031, release_type="DUBUG_ONLY", default_session_lifetime_seconds=10,
                                 tox_id="E7B2DD4DBF47295A58F372F5FA4A88CB655999D23ABE5415CF00E7400551A901A15477F334F2",
+                                tox_profile_name="nqwst_t.tox", tox_profile_password="7097152",
                                 aes265_key="BF9514A1BBFA307092C4971CBDE621BEE381BB00EF1B8841356A6428F5288B58",
                                 access_key="7E74516EFA4FD55DE3E7CD017DF7D364D2DF7B94122740476DFBFB5F10523D6F",
                                 detetime_fmt="%d.%m.%y %H:%M:%S", log_fmt="[%(threadName)s] %(asctime)s [%(levelname)s] %(filename)s:%(lineno)d %(message)s",

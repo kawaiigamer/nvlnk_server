@@ -13,6 +13,8 @@ from geographiclib.geodesic import Geodesic
 
 from server_logging import EndpointLogger
 
+_MESHTASTIC_DATA_PATH = "./meshtastic_data"
+
 
 class MeshtasticWireException(BaseException):
     pass
@@ -224,8 +226,8 @@ def meshtastic_json_format_dumped_nodes(nodes: List[MeshtasticKnownNode]) -> str
 
 
 def meshtastic_save_dumped_nodes(nodes: List[MeshtasticKnownNode]):
-    os.makedirs("./meshtastic_data", exist_ok=True)
-    with open(f"./meshtastic_data/known_nodes_dump_{datetime.now().strftime("%d.%m.%y_%H-%M-%S")}.json", "w+") as f:
+    os.makedirs(_MESHTASTIC_DATA_PATH, exist_ok=True)
+    with open(f"{_MESHTASTIC_DATA_PATH}/known_nodes_dump_{datetime.now().strftime("%d.%m.%y_%H-%M-%S")}.json", "w+") as f:
         f.write(meshtastic_json_format_dumped_nodes(nodes))
 
 

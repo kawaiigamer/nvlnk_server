@@ -77,9 +77,10 @@ class RoutePart(OrderedDataclass):
 
 
 @dataclass
-class Main(OrderedDataclass):
+class MainEndpointDescription(OrderedDataclass):
     name: str
     status: str
+    release_type: str
     started_at: datetime
     timezone: str
     tox_id: str
@@ -98,7 +99,7 @@ class Main(OrderedDataclass):
         return self.started_at.strftime(PRIVATE_DATA.detetime_fmt)
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"name": self.name, "status": self.status, "started_at": self.started_time, "timezone": self.timezone,
+        return {"name": self.name, "status": self.status, "release_type": self.release_type, "started_at": self.started_time, "timezone": self.timezone,
                 "running_time": self.running_time, "tox_id": self.tox_id,
                 "meshtatic_nodes_names": self.meshtatic_nodes_names,
                 "services": {k: v.to_dict() for k, v in self.services.items()}}
@@ -149,6 +150,10 @@ _meshtastic_get_node_descr: List[Param] = [Param("count", "count", 250, "Number 
 _meshtastic_send_message_descr: List[Param] = [Param("text", "text", "", "Sending text"), Param("ch", "channel_index", 0, "Channel index"), Param("to", "destinationIddestinationId", -1, "To send a message to a specific node, specify its ID")]
 #  ------------------------------------- meshtastic  params ------------------------------
 
+#  ------------------------------------- tox  params -------------------------------------
+_tox_send_message_descr: List[Param] = [Param("text", "text", "", "Sending text"), Param("chat_id", "chat_id", 0, "Chat id")]
+#  ------------------------------------- tox  params -------------------------------------
+
 _endpoints: Dict[str, Union[RoutePart, EndpointPart]] = {
                                             #  ------------------------------------- wav -------------------------------------
                                             "wav": RoutePart("Uncompressed audio",  {
@@ -178,17 +183,20 @@ _endpoints: Dict[str, Union[RoutePart, EndpointPart]] = {
                                 #  ------------------------------------- meshtastic -------------------------------------
                                 "meshtastic": RoutePart("Meshtastic introduction service", {
                                     "get_nodes": EndpointPart("Returns current node list json or error", "GET", _meshtastic_node_id_descr + _meshtastic_get_node_descr),
-                                    "send_message": EndpointPart("Send message to any chat", "GET", _meshtastic_get_node_descr + _meshtastic_send_message_descr)})
-
-
-                                }
-
+                                    "send_message": EndpointPart("Send message to any chat", "GET", _meshtastic_get_node_descr + _meshtastic_send_message_descr)}),
                                 #  ------------------------------------- meshtastic -------------------------------------
+
+                                #  ------------------------------------- tox --------------------------------------------
+                                "tox": RoutePart("Tox introduction service", {
+                                    "send_message": EndpointPart("Send message to any chat", "GET", _tox_send_message_descr)})
+                                },
+
+                                #  ------------------------------------- tox --------------------------------------------
 
 
                                 )
                                 }
-_main = Main("yue-ws-main", "online", datetime.now(), "JST", PRIVATE_DATA.tox_id, [node.short_name for node in PRIVATE_DATA.meshtastic_nodes], _endpoints)
+_main = MainEndpointDescription("yue-ws-main", "online", PRIVATE_DATA.release_type, datetime.now(), "JST", PRIVATE_DATA.tox_id, [node.short_name for node in PRIVATE_DATA.meshtastic_nodes], _endpoints)
 
 
 def __get_params_from_request(args, params_descr: List[Param]) -> Optional[Dict[str, Any]]:

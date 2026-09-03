@@ -23,8 +23,8 @@ from server_logging import SimpleDebugOnlyLogger, EndpointLogger
 
 class AsyncAudioStreamStatus(Enum):
     UNKNOWN = 0
-    BASE_INITIALIZATED = 1
-    GENERATORS_INITIALIZATED = 2
+    BASE_INITIALIZED = 1
+    GENERATORS_INITIALIZED = 2
     RUNNING = 3
     PAUSED_ONCE = 4
     PAUSED = 5
@@ -56,7 +56,7 @@ class AsyncAudioStream(AsyncAudioStreamBase):
         self.frame_body_length_without_aes_payload = self.wav.frame_length
         self.supports_infinite_continue: bool = supports_infinite_continue
         self.generators_inited_at: datetime = datetime.min
-        self.status: AsyncAudioStreamStatus = AsyncAudioStreamStatus.BASE_INITIALIZATED
+        self.status: AsyncAudioStreamStatus = AsyncAudioStreamStatus.BASE_INITIALIZED
 
     def is_deprecated(self, secs: timedelta) -> bool:
         return (datetime.now() - self.generators_inited_at) > secs and self.status.value >= AsyncAudioStreamStatus.PAUSED_ONCE.value  #and inspect.getgeneratorstate(self.sample_gen) == "GEN_CLOSED" if self.sample_gen else False
@@ -85,7 +85,7 @@ class AsyncAudioStream(AsyncAudioStreamBase):
                 self.sample_gen = self._random_frames_gen()
         self.io_logger.msg_lazy(lambda: f"Stream generators inited with config: {self.to_json()}")
         self.generators_inited_at: datetime = datetime.now()
-        self.status = AsyncAudioStreamStatus.GENERATORS_INITIALIZATED
+        self.status = AsyncAudioStreamStatus.GENERATORS_INITIALIZED
 
     def _log_frame(self, frame_no: int, bits: np.ndarray, fsk_frame: np.ndarray, include_sync_symbols: bool = True) -> None:
         out_io = self.io_logger.stream_msgs_block_gen(frame_no)
@@ -315,7 +315,7 @@ class AsyncAudioStream(AsyncAudioStreamBase):
 
         paused_once: bool = self.status == AsyncAudioStreamStatus.PAUSED_ONCE
         self._init_generators()
-        if self.status == AsyncAudioStreamStatus.GENERATORS_INITIALIZATED:
+        if self.status == AsyncAudioStreamStatus.GENERATORS_INITIALIZED:
             self.status = AsyncAudioStreamStatus.RUNNING
         res = Response(stream_with_context(self._sync_generator_wrapper()), mimetype='audio/wav')
 

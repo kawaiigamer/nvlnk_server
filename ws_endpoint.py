@@ -5,12 +5,12 @@ import traceback
 import uuid
 from dataclasses import dataclass
 from datetime import timedelta, datetime
+from enum import Enum
 
 from functools import wraps
-from typing import Dict, Union, List
+from typing import Dict, Union, List, Optional
 
 from flask import Flask, request, Response, render_template, session
-from yaml import load
 
 from server_description import get_wav_params, get_aes_params, get_wav_fsk_params, get_system_info, get_private_data
 from server_logging import DefaultLogger, EndpointLogger
@@ -19,14 +19,20 @@ from server_meshtastic import meshtastic_get_nodes, meshtastic_save_dumped_nodes
 from server_private import EndpointPrivateData
 from server_storage import StreamsStorage
 from server_streaming import AsyncAudioStream, AsyncAudioStreamBase, WavAudio, WavAudioNFSK, AESCrypterBase
+from server_tox import ToxClientThread
 
 
-HTTP_NOT_ACCEPTABLE = 406
-HTTP_CONTENT_TOO_LARGE = 413
-HTTP_MISDIRECTED_REQUEST = 421
-HTTP_CONFLICT = 409
-HTTP_OK = 200
-HTTP_NO_CONTENT = 204
+class HTTPCodes(Enum):
+    OK = 200
+    NO_CONTENT = 204
+    UNAUTHORIZED = 401
+    NOT_ACCEPTABLE = 406
+    CONTENT_TOO_LARGE = 413
+    MISDIRECTED_REQUEST = 421
+    CONFLICT = 409
+    INTERNAL_SERVER_ERROR = 500
+    SERVICE_UNAVAILABLE = 503
+
 
 
 @dataclass
@@ -34,16 +40,27 @@ class EndpointPrivateHandlerObject:
     streams_storage: StreamsStorage
     private_data: EndpointPrivateData
     logger: EndpointLogger
+    tox_thread: Optional[ToxClientThread] = None
 
 
-__private_data = get_private_data()
-__logger = DefaultLogger(__private_data)
-handler: EndpointPrivateHandlerObject = EndpointPrivateHandlerObject(streams_storage=StreamsStorage(
-                                                                                        clear_interval=timedelta(seconds=__private_data.default_session_lifetime_seconds),
-                                                                                        stream_lifetime=timedelta(seconds=__private_data.default_session_lifetime_seconds),
-                                                                                        logger=__logger),
-                                                                     private_data=get_private_data(),
-                                                                     logger=__logger)
+def init_endpoint_private_handle_object() -> EndpointPrivateHandlerObject:
+    __private_data = get_private_data()
+    __logger = DefaultLogger(__private_data)
+    handler: EndpointPrivateHandlerObject = EndpointPrivateHandlerObject(streams_storage=StreamsStorage(
+        clear_interval=timedelta(seconds=__private_data.default_session_lifetime_seconds),
+        stream_lifetime=timedelta(seconds=__private_data.default_session_lifetime_seconds),
+        logger=__logger),
+        private_data=get_private_data(),
+        logger=__logger)
+    if __private_data.tox_id and __private_data.tox_profile_name and __private_data.tox_profile_password:
+        try:
+            handler.tox_thread = ToxClientThread(__logger, __private_data.tox_profile_name, __private_data.tox_profile_password)
+            handler.tox_thread.run()
+        except Exception as exp:
+            handler.logger.error(f"Exception while initialization tox thread {exp}")
+    return handler
+
+handler: EndpointPrivateHandlerObject = init_endpoint_private_handle_object()
 app = Flask(__name__)
 app.permanent_session_lifetime = timedelta(seconds=handler.private_data.default_session_lifetime_seconds)
 app.secret_key = uuid.uuid4().hex
@@ -64,7 +81,7 @@ def internal_server_error_throwable(f):
                 class_name = instance.__class__.__name__
             else:
                 class_name = tb.tb_frame.f_locals.get('cls').__name__
-            return {"error": f"Internal Server Error! [{class_name}::{line_num}:{func_name}] {str(ve)}"}, 500
+            return {"error": f"Internal Server Error! [{class_name}::{line_num}:{func_name}] {str(ve)}"}, HTTPCodes.INTERNAL_SERVER_ERROR.value
     return decorated_function
 
 
@@ -76,7 +93,7 @@ def authentication_required(f):
             return f(*args, **kwargs)
         else:
             handler.logger.exception(f"Unauthorized client with access_key: {access_key}")
-            return "access_key is not valid", 401
+            return "access_key is not valid", HTTPCodes.UNAUTHORIZED.value
     return authentication_function
 
 
@@ -89,11 +106,11 @@ def internal_stream_session_handler(f):
                 new_stream: AsyncAudioStream = f(stream=storaged_stream, *args, **kwargs)
                 handler.logger.debug(f"Found in storage ={storaged_stream.stream_uuid}, new_stream {new_stream.stream_uuid}")
             else:
-                s = AsyncAudioStreamBase(uuid.uuid4().hex)
+                s = AsyncAudioStreamBase(handler.logger, uuid.uuid4().hex)
                 new_stream: AsyncAudioStream = f(stream=s, *args, **kwargs)
                 handler.logger.debug(f"Found uuid in session but not stream in storage, StreamBase: {s.stream_uuid} new_stream {new_stream.stream_uuid}")
         else:
-            s = AsyncAudioStreamBase(uuid.uuid4().hex)
+            s = AsyncAudioStreamBase(handler.logger,  uuid.uuid4().hex)
             new_stream: AsyncAudioStream = f(stream=s, *args, **kwargs)
             handler.logger.debug(f"Not found uuid in session StreamBase: {s.stream_uuid}, new_stream {new_stream.stream_uuid}")
         handler.streams_storage.add_stream(new_stream.stream_uuid, new_stream)
@@ -105,7 +122,7 @@ def internal_stream_session_handler(f):
 
 @app.route('/favicon.ico')
 def favicon():
-    return '', HTTP_NO_CONTENT
+    return '', HTTPCodes.NO_CONTENT.value
 
 
 @app.route("/")
@@ -183,7 +200,8 @@ def wav_text_aes256_nfsk_decrypter():
         return render_template('input_wav_file.html')
     return AsyncAudioStream(wav=WavAudioNFSK(**get_wav_fsk_params(request.args), logger=handler.logger), crypter=AESCrypterBase.from_config(get_aes_params(request.args)), logger=handler.logger).wav_aes_nfsk_decrypt(request.data), 200
 
-# -------------------- wav --------------------
+# -------------------- wav ---------------------------
+
 # -------------------- meshtastic --------------------
 
 @app.route('/meshtastic/get_nodes', methods=['GET'])
@@ -192,7 +210,7 @@ def meshtastic_get_nodes_endpoint():
     available_nodes_count: int = len(handler.private_data.meshtastic_nodes)
     current_node = request.args.get("ID")
     if available_nodes_count > 1 and not current_node:
-        return "Node ID is not set", HTTP_CONFLICT
+        return "Node ID is not set", HTTPCodes.CONFLICT.value
     result: List[MeshtasticKnownNode] = meshtastic_get_nodes(logger=handler.logger, short_name=current_node, count=int(request.args.get("count", 250)))
     if request.args.get("save") == "true":
         meshtastic_save_dumped_nodes(result)
@@ -204,24 +222,43 @@ def meshtastic_get_nodes_endpoint():
 def meshtastic_send_message_endpoint():
     MAX_TEXT_LENGTH = 92
     current_node = request.args.get("ID")
-    if text:= request.args.get("text"):
+    if text := request.args.get("text"):
         if len(text) > MAX_TEXT_LENGTH:
-            return f"Text message too large: {len(text)} > {MAX_TEXT_LENGTH}!", HTTP_CONTENT_TOO_LARGE
+            return f"Text message too large: {len(text)} > {MAX_TEXT_LENGTH}!", HTTPCodes.CONTENT_TOO_LARGE.value
         try:
             meshtastic_send_message(handler.logger, text, int(request.args.get("ch", 0)), int(request.args.get("to", -1)), short_name=current_node)
-            return "", HTTP_OK
+            return "", HTTPCodes.OK.value
         except ValueError:
             msg = f"Channel index: {request.args.get("ch")} and destination id: {request.args.get("to")} must be integers!"
             handler.logger.exception(msg)
-            return msg, HTTP_NOT_ACCEPTABLE
+            return msg, HTTPCodes.NOT_ACCEPTABLE.value
     else:
-        return "Message text is not set", HTTP_MISDIRECTED_REQUEST
+        return "Message text is not set", HTTPCodes.MISDIRECTED_REQUEST.value
 
 
 # get_msgs?count last
 # get_metrics?last_hours= (def=24)
 
 # -------------------- meshtastic --------------------
+
+# -------------------- tox ---------------------------
+@app.route('/tox/send_message', methods=['GET'])
+#@authentication_required
+def tox_send_message_endpoint():
+    if not handler.tox_thread or not handler.tox_thread.is_running():
+        return "Tox service is not acceptable", HTTPCodes.SERVICE_UNAVAILABLE.value
+    text = request.args.get("text")
+    chat_id = request.args.get("chat_id")
+    if not text or not chat_id:
+        return f"Text: {text}, or chat ID: {chat_id} is invalid or not set", HTTPCodes.NO_CONTENT.value
+    try:
+        handler.tox_thread.send_message_safely(chat_id, text)
+        return "Sending message command queued", HTTPCodes.OK.value
+    except Exception as exp:
+        return f"Exception while sending tox message: Text: {text}, chat ID: {chat_id}, Exception: {exp}", HTTPCodes.INTERNAL_SERVER_ERROR.value
+
+# -------------------- tox ---------------------------
+
 # -------------------- MAIN --------------------
 
 def main() -> None:
@@ -233,7 +270,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # --- Starting endpoint
-    handler.logger.debug(f"Endpoint version: {handler.private_data.version} started")
+    handler.logger.debug(f"Endpoint version: {handler.private_data.version}, release type: {handler.private_data.release_type} started!")
     app.run(host='0.0.0.0', port=args.port, debug=args.debug, use_reloader=True)
 
 

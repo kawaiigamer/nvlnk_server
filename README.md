@@ -36,7 +36,9 @@ Allows to create infinite audio streams based on random data, even with non-stan
 
 ### 🈳tox
 ___
-🈳**WIP**
+Basic commands:
+- ✅ Send a message
+- 🈳 Receive incoming messages
 
 ### 🈸Mesh Networks
 ___
@@ -60,6 +62,7 @@ ___
 ### Features
 - ✅ ~~Adding central logging system.~~
 - 🈳 _Different_ data for _different_ channels.
+- 🈳 Working with _different_ nodes.
 - 🈳 Detecting symbols by _intervals_, but not by single values while decryption.
 - ✅ ~~`/wav/text/aes256_N-FSK/decrypter`~~.
 - ✅ ~~Smoothing symbols values.~~
