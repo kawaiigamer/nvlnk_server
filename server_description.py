@@ -5,10 +5,10 @@ from typing import Union, List, Dict, Self, Optional, Any, Type, Tuple
 
 import numpy as np
 
-from server_private import load_private_data, EndpointPrivateData
+from server_private import load_private_data, EndpointPrivateConfig
 
 __SECRET_KEY_256 = "898946929E5274DDE600CD7788B6C557377716197A59A6C5D9063A22C9E40741"
-PRIVATE_DATA: EndpointPrivateData = load_private_data(__SECRET_KEY_256)
+PRIVATE_DATA: EndpointPrivateConfig = load_private_data(__SECRET_KEY_256)
 
 
 @dataclass
@@ -150,9 +150,13 @@ _meshtastic_get_node_descr: List[Param] = [Param("count", "count", 250, "Number 
 _meshtastic_send_message_descr: List[Param] = [Param("text", "text", "", "Sending text"), Param("ch", "channel_index", 0, "Channel index"), Param("to", "destinationIddestinationId", -1, "To send a message to a specific node, specify its ID")]
 #  ------------------------------------- meshtastic  params ------------------------------
 
-#  ------------------------------------- tox  params -------------------------------------
+#  ------------------------------------- tox_library  params -------------------------------------
 _tox_send_message_descr: List[Param] = [Param("text", "text", "", "Sending text"), Param("chat_id", "chat_id", 0, "Chat id")]
-#  ------------------------------------- tox  params -------------------------------------
+#  ------------------------------------- tox_library  params -------------------------------------
+
+#  ------------------------------------- main queue params -------------------------------
+_queue_get_items_descr: List[Param] = [Param("count", "count", PRIVATE_DATA.default_queue_length, "Max count dequeued items")]
+#  ------------------------------------- main queue params -------------------------------
 
 _endpoints: Dict[str, Union[RoutePart, EndpointPart]] = {
                                             #  ------------------------------------- wav -------------------------------------
@@ -186,17 +190,19 @@ _endpoints: Dict[str, Union[RoutePart, EndpointPart]] = {
                                     "send_message": EndpointPart("Send message to any chat", "GET", _meshtastic_get_node_descr + _meshtastic_send_message_descr)}),
                                 #  ------------------------------------- meshtastic -------------------------------------
 
-                                #  ------------------------------------- tox --------------------------------------------
+                                #  ------------------------------------- tox_library --------------------------------------------
                                 "tox": RoutePart("Tox introduction service", {
-                                    "send_message": EndpointPart("Send message to any chat", "GET", _tox_send_message_descr)})
-                                },
+                                    "send_message": EndpointPart("Send message to any chat", "GET", _tox_send_message_descr),
+                                    "get_messages": EndpointPart("Geet messages from tox client", "GET", _queue_get_items_descr)
+                                            }),
+                                #  ------------------------------------- tox_library --------------------------------------------
 
-                                #  ------------------------------------- tox --------------------------------------------
+                                #  ------------------------------------- main queue -------------------------------------
+                                            })}
+                                #  ------------------------------------- main queue -------------------------------------
 
 
-                                )
-                                }
-_main = MainEndpointDescription("yue-ws-main", "online", PRIVATE_DATA.release_type, datetime.now(), "JST", PRIVATE_DATA.tox_id, [node.short_name for node in PRIVATE_DATA.meshtastic_nodes], _endpoints)
+_main = MainEndpointDescription("yue-ws-main", "online", PRIVATE_DATA.release_type, datetime.now(), "JST", PRIVATE_DATA.tox_config.profile_name, [node.short_name for node in PRIVATE_DATA.meshtastic_nodes], _endpoints)
 
 
 def __get_params_from_request(args, params_descr: List[Param]) -> Optional[Dict[str, Any]]:
@@ -221,5 +227,5 @@ def get_system_info() -> str:
     return json.dumps(_main, cls=__DataclassEncoder, indent=4, ensure_ascii=False)
 
 
-def get_private_data() -> EndpointPrivateData:
+def get_private_data() -> EndpointPrivateConfig:
     return PRIVATE_DATA

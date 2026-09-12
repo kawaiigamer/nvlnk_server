@@ -1,5 +1,5 @@
 import argparse
-import logging
+import os
 import threading
 import traceback
 import uuid
@@ -16,7 +16,8 @@ from server_description import get_wav_params, get_aes_params, get_wav_fsk_param
 from server_logging import DefaultLogger, EndpointLogger
 from server_meshtastic import meshtastic_get_nodes, meshtastic_save_dumped_nodes, meshtastic_json_format_dumped_nodes, \
     MeshtasticKnownNode, meshtastic_send_message
-from server_private import EndpointPrivateData
+from server_private import EndpointPrivateConfig
+from server_queue import LimitedTypedQueue, InternalQueuedItem
 from server_storage import StreamsStorage
 from server_streaming import AsyncAudioStream, AsyncAudioStreamBase, WavAudio, WavAudioNFSK, AESCrypterBase
 from server_tox import ToxClientThread
@@ -34,31 +35,35 @@ class HTTPCodes(Enum):
     SERVICE_UNAVAILABLE = 503
 
 
-
 @dataclass
 class EndpointPrivateHandlerObject:
     streams_storage: StreamsStorage
-    private_data: EndpointPrivateData
+    private_data: EndpointPrivateConfig
     logger: EndpointLogger
-    tox_thread: Optional[ToxClientThread] = None
+    tox_instance: Optional[ToxClientThread] = None
+    tox_instance: Optional[threading.Thread] = None
 
 
 def init_endpoint_private_handle_object() -> EndpointPrivateHandlerObject:
     __private_data = get_private_data()
     __logger = DefaultLogger(__private_data)
-    handler: EndpointPrivateHandlerObject = EndpointPrivateHandlerObject(streams_storage=StreamsStorage(
+    handler: EndpointPrivateHandlerObject = EndpointPrivateHandlerObject(
+        streams_storage=StreamsStorage(
         clear_interval=timedelta(seconds=__private_data.default_session_lifetime_seconds),
         stream_lifetime=timedelta(seconds=__private_data.default_session_lifetime_seconds),
         logger=__logger),
         private_data=get_private_data(),
         logger=__logger)
-    if __private_data.tox_id and __private_data.tox_profile_name and __private_data.tox_profile_password:
+    if __private_data.tox_config:
         try:
-            handler.tox_thread = ToxClientThread(__logger, __private_data.tox_profile_name, __private_data.tox_profile_password)
-            handler.tox_thread.run()
+            if os.environ.get("WERKZEUG_RUN_MAIN") == "true":  #TODO: remove after debug
+                handler.tox_instance = ToxClientThread(__logger, __private_data.tox_config)
+                handler.tox_instance = threading.Thread(target=handler.tox_instance, daemon=True)
+                handler.tox_instance.start()
         except Exception as exp:
-            handler.logger.error(f"Exception while initialization tox thread {exp}")
+            handler.logger.error(f"Exception while initialization tox_data thread {exp}")
     return handler
+
 
 handler: EndpointPrivateHandlerObject = init_endpoint_private_handle_object()
 app = Flask(__name__)
@@ -88,12 +93,13 @@ def internal_server_error_throwable(f):
 def authentication_required(f):
     @wraps(f)
     def authentication_function(*args, **kwargs):
-        access_key = request.cookies.get("access_key")
-        if access_key == handler.private_data.access_key:
-            return f(*args, **kwargs)
-        else:
-            handler.logger.exception(f"Unauthorized client with access_key: {access_key}")
-            return "access_key is not valid", HTTPCodes.UNAUTHORIZED.value
+        # access_key = request.cookies.get("access_key")
+        # if access_key == handler.private_data.access_key:
+        #     return f(*args, **kwargs)
+        # else:
+        #     handler.logger.exception(f"Unauthorized client with access_key: {access_key}")
+        #     return "access_key is not valid", HTTPCodes.UNAUTHORIZED.value
+        return f(*args, **kwargs)
     return authentication_function
 
 
@@ -126,7 +132,7 @@ def favicon():
 
 
 @app.route("/")
-#@authentication_required
+@authentication_required
 def main_page():
     return Response(get_system_info(), mimetype='application/json')
 
@@ -135,7 +141,7 @@ def main_page():
 @app.route('/wav/random/stream')
 @internal_server_error_throwable
 @internal_stream_session_handler
-#@authentication_required
+@authentication_required
 def wav_random_stream(stream: Union[AsyncAudioStream, AsyncAudioStreamBase]) -> AsyncAudioStream:
     if isinstance(stream, AsyncAudioStream):
         return stream
@@ -145,7 +151,7 @@ def wav_random_stream(stream: Union[AsyncAudioStream, AsyncAudioStreamBase]) -> 
 @app.route('/wav/random/N-FSK/stream')
 @internal_server_error_throwable
 @internal_stream_session_handler
-#@authentication_required
+@authentication_required
 def wav_random_nfsk_stream(stream: Union[AsyncAudioStream, AsyncAudioStreamBase]) -> AsyncAudioStream:
     if isinstance(stream, AsyncAudioStream):
         return stream
@@ -155,7 +161,7 @@ def wav_random_nfsk_stream(stream: Union[AsyncAudioStream, AsyncAudioStreamBase]
 @app.route('/wav/random/aes256/stream')
 @internal_server_error_throwable
 @internal_stream_session_handler
-#@authentication_required
+@authentication_required
 def wav_random_aes256_stream(stream: Union[AsyncAudioStream, AsyncAudioStreamBase]) -> AsyncAudioStream:
     if isinstance(stream, AsyncAudioStream):
         return stream
@@ -165,7 +171,7 @@ def wav_random_aes256_stream(stream: Union[AsyncAudioStream, AsyncAudioStreamBas
 
 @app.route('/wav/random/aes256_N-FSK/stream')
 @internal_server_error_throwable
-#@authentication_required
+@authentication_required
 def wav_random_aes256_nfsk_stream():
     return AsyncAudioStream(wav=WavAudioNFSK(**get_wav_fsk_params(request.args), logger=handler.logger), logger=handler.logger, crypter=AESCrypterBase.from_config(get_aes_params(request.args))).start()
 
@@ -173,7 +179,7 @@ def wav_random_aes256_nfsk_stream():
 app.config['LAST_PLAIN_TEXT_STR'] = ''
 @app.route('/wav/text/aes256_N-FSK/crypter', methods=['GET', 'POST'])
 @internal_server_error_throwable
-#@authentication_required
+@authentication_required
 def wav_text_aes256_nfsk_crypter():
     aes_params = get_aes_params(request.args)
     if request.method == 'POST':
@@ -187,14 +193,14 @@ def wav_text_aes256_nfsk_crypter():
 
 
 @app.route('/wav/text/aes256_N-FSK/crypter/form', methods=['GET'])
-#@authentication_required
+@authentication_required
 def wav_text_aes256_nfsk_crypter_form():
     return render_template('input_wav_text.html')
 
 
 @app.route('/wav/text/aes256_N-FSK/decrypter', methods=["GET", 'POST'])
 @internal_server_error_throwable
-#@authentication_required
+@authentication_required
 def wav_text_aes256_nfsk_decrypter():
     if request.method == 'GET':
         return render_template('input_wav_file.html')
@@ -205,7 +211,7 @@ def wav_text_aes256_nfsk_decrypter():
 # -------------------- meshtastic --------------------
 
 @app.route('/meshtastic/get_nodes', methods=['GET'])
-#@authentication_required
+@authentication_required
 def meshtastic_get_nodes_endpoint():
     available_nodes_count: int = len(handler.private_data.meshtastic_nodes)
     current_node = request.args.get("ID")
@@ -218,7 +224,7 @@ def meshtastic_get_nodes_endpoint():
 
 
 @app.route('/meshtastic/send_message', methods=['GET'])
-#@authentication_required
+@authentication_required
 def meshtastic_send_message_endpoint():
     MAX_TEXT_LENGTH = 92
     current_node = request.args.get("ID")
@@ -243,21 +249,36 @@ def meshtastic_send_message_endpoint():
 
 # -------------------- tox ---------------------------
 @app.route('/tox/send_message', methods=['GET'])
-#@authentication_required
+@internal_server_error_throwable
+@authentication_required
 def tox_send_message_endpoint():
-    if not handler.tox_thread or not handler.tox_thread.is_running():
+    if not handler.tox_instance or not handler.tox_instance.is_running():
         return "Tox service is not acceptable", HTTPCodes.SERVICE_UNAVAILABLE.value
     text = request.args.get("text")
-    chat_id = request.args.get("chat_id")
+    chat_id: int = int(request.args.get("chat_id"))
     if not text or not chat_id:
         return f"Text: {text}, or chat ID: {chat_id} is invalid or not set", HTTPCodes.NO_CONTENT.value
     try:
-        handler.tox_thread.send_message_safely(chat_id, text)
+        handler.tox_instance.send_message_safely(chat_id, text)
         return "Sending message command queued", HTTPCodes.OK.value
     except Exception as exp:
-        return f"Exception while sending tox message: Text: {text}, chat ID: {chat_id}, Exception: {exp}", HTTPCodes.INTERNAL_SERVER_ERROR.value
+        return f"Exception while sending tox_data message: Text: {text}, chat ID: {chat_id}, Exception: {exp}", HTTPCodes.INTERNAL_SERVER_ERROR.value
+
+
+@app.route('/tox/get_messages', methods=['GET'])
+@internal_server_error_throwable
+@authentication_required
+def tox_get_messages_endpoint():
+    if not handler.tox_instance or not handler.tox_instance.is_running():
+        return "Tox client is not running", HTTPCodes.SERVICE_UNAVAILABLE
+    try:
+        count: int = int(request.args.get("count", handler.private_data.default_queue_length))
+    except ValueError:
+        return f"Count param is invalid: {request.args.get("count")}", HTTPCodes.NOT_ACCEPTABLE
+    return Response([item.to_json() for item in handler.tox_instance.events_queue.get_batch(count)], mimetype='application/json')
 
 # -------------------- tox ---------------------------
+
 
 # -------------------- MAIN --------------------
 

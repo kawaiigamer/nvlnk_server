@@ -38,7 +38,7 @@ Allows to create infinite audio streams based on random data, even with non-stan
 ___
 Basic commands:
 - ✅ Send a message
-- 🈳 Receive incoming messages
+- ✅ Receive incoming messages
 
 ### 🈸Mesh Networks
 ___

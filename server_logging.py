@@ -7,7 +7,7 @@ from typing import Callable, Union, Generator, Optional, Tuple
 
 import numpy as np
 
-from server_private import EndpointPrivateData
+from server_private import EndpointPrivateConfig
 
 _RUNTIME_LOGS_PATH = "./runtime_logs"
 
@@ -81,7 +81,7 @@ class SimpleDebugOnlyLogger:
 
 
 class DefaultLogger(EndpointLogger):
-    def __init__(self, private_config: EndpointPrivateData):
+    def __init__(self, private_config: EndpointPrivateConfig):
         os.makedirs(_RUNTIME_LOGS_PATH, exist_ok=True)
         log_filename = datetime.now().strftime(private_config.detetime_fmt).replace(":", "-")
         logger_file_path = f"{_RUNTIME_LOGS_PATH}/{private_config.logger_name}_{log_filename}.log"
@@ -109,7 +109,7 @@ class DefaultLogger(EndpointLogger):
         self.logger.critical(msg)
 
     def core(self, msg: str):
-        self.logger.critical(f"[CORE]{msg}")
+        self.logger.critical(f"[CORE] {msg}")
 
     def warning(self, msg: str):
         self.logger.warning(msg)
