@@ -155,7 +155,7 @@ _tox_send_message_descr: List[Param] = [Param("text", "text", "", "Sending text"
 #  ------------------------------------- tox_library  params -------------------------------------
 
 #  ------------------------------------- main queue params -------------------------------
-_queue_get_items_descr: List[Param] = [Param("count", "count", PRIVATE_DATA.default_queue_length, "Max count dequeued items")]
+_queue_get_items_descr: List[Param] = [Param("count", "count", 512, "Max count dequeued items")]
 #  ------------------------------------- main queue params -------------------------------
 
 _endpoints: Dict[str, Union[RoutePart, EndpointPart]] = {
@@ -202,7 +202,7 @@ _endpoints: Dict[str, Union[RoutePart, EndpointPart]] = {
                                 #  ------------------------------------- main queue -------------------------------------
 
 
-_main = MainEndpointDescription("yue-ws-main", "online", PRIVATE_DATA.release_type, datetime.now(), "JST", PRIVATE_DATA.tox_config.profile_name, [node.short_name for node in PRIVATE_DATA.meshtastic_nodes], _endpoints)
+_main = MainEndpointDescription("yue-ws-main", "online", PRIVATE_DATA.release_type, datetime.now(), "JST", PRIVATE_DATA.tox_config.profile_name, [node_key for node_key in PRIVATE_DATA.meshtastic_nodes.keys()], _endpoints)
 
 
 def __get_params_from_request(args, params_descr: List[Param]) -> Optional[Dict[str, Any]]:

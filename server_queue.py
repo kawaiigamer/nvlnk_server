@@ -1,6 +1,6 @@
 import threading
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Generic, TypeVar, Optional, Union, Dict
 from collections import deque
@@ -14,51 +14,71 @@ class InternalQueuedItem:
     content: Union[Dict, str]
     main_type: str | None = None
     sub_type: str | None = None
-    uuid: str = str(uuid.uuid4())
-    timestamp: datetime = datetime.now()
+    uuid: str = field(default_factory=lambda: str(uuid.uuid4()))
+    timestamp: datetime = field(default_factory=datetime.now)
 
-    def to_json(self) -> Dict:
-        return {"datetime": self.timestamp.strftime("%d.%m.%y %H:%M:%S"), "content": self.content,
+    def to_json(self, logger: EndpointLogger) -> Dict:
+        return {"datetime": self.timestamp.strftime(logger.detetime_fmt), "content": self.content,
                 "main_type": self.main_type, "sub_type": self.sub_type}
 
 
 _T = TypeVar('T')
 
 
-class LimitedTypedQueue(Generic[_T]):
+class FixedTypedConcurrentDequeue(Generic[_T]):
     def __init__(self, logger: EndpointLogger, max_size: int, name: str) -> None:
-        self._queue: deque[_T] = deque(maxlen=max_size)
         self._loger = logger
-        self.__mutex = threading.Lock()
         self._name = name
-        self._loger.info(f"Initialized {self._name} {self.__class__.__name__} with max length: {max_size}")
+        self._deque: deque[_T] = self._create_internal_deque(max_size)
+        self._mutex = threading.Lock()
+
+    def _create_internal_deque(self, max_size: int) -> deque[_T]:
+        self._loger.info(f"Initialing new {self.name} {self.__class__.__name__} with max length: {max_size}")
+        return deque(maxlen=max_size)
 
     @property
     def name(self) -> str:
         return self._name
 
-    @with_mutex
-    def put(self, item: _T) -> None:
-        self._queue.append(item)
+    @property
+    def mutex(self) -> threading.Lock:
+        return self._mutex
 
-    @with_mutex
+    @with_mutex("mutex")
+    def put_top(self, item: _T) -> None:
+        self._deque.appendleft(item)
+
+    @with_mutex("mutex")
+    def put(self, item: _T) -> None:
+        self._deque.append(item)
+
+    @with_mutex("mutex")
     def get(self) -> Optional[_T]:
-        if not self._queue:
+        if not self._deque:
             self._loger.error("Attempting to get an element from an empty queue!")
             return None
-        return self._queue.popleft()
+        return self._deque.popleft()
 
-    @with_mutex
+    @with_mutex("mutex")
     def is_empty(self) -> bool:
-        return len(self._queue) == 0
+        return len(self._deque) == 0
 
-    @with_mutex
+    @with_mutex("mutex")
     def __len__(self) -> int:
-        return len(self._queue)
+        return len(self._deque)
 
-    @with_mutex
+    @with_mutex("mutex")
     def get_batch(self, max_count: int) -> list[_T]:
         items: list[_T] = []
-        while self._queue and len(items) < max_count:
-            items.append(self._queue.popleft())
+        while self._deque and len(items) < max_count:
+            items.append(self._deque.popleft())
         return items
+
+    @with_mutex("mutex")
+    def recreate(self):
+        if count := len(self._deque):
+            self._loger.warning(f"Dropping {count} items from queue: {self.name}")
+            self._deque = self._create_internal_deque(self._deque.maxlen)
+        else:
+            self._loger.warning(f"Internal queue: {self.name} is empty, no items to drop")
+            return

@@ -1,10 +1,10 @@
-# ws-http-endpoint
-Custom `Flask` `HTTP` endpoint for default WS with external IP.
+# ws endpoint
+Custom `HTTP` endpoint written on `Flask` for default **WS** with external IP.
 
-❌ DO NOT USE THIS PROJECT IN PRODUCTION ❌
+❌ DO NOT YET USE THIS PROJECT IN PRODUCTION ❌
 
-## Basic usage
-### Startup
+# Basic usage
+## Startup
 ```
 python3 -m ws_endpoint.py [-h] [-k KEY] [-p PORT] [-d DEBUG]
 
@@ -17,63 +17,81 @@ options:
   -d DEBUG, --debug DEBUG   enable debug mode(default=True)
 ```
 
-### Getting runtime status & all services information with endpoints + parameters description and presets (json)
+## Getting runtime status & all services information with endpoints + parameters description and presets (json)
 ```
 curl -X GET http://{IP}:{PORT}/
 ```
-### If any endpoint needs authentication
+## If any endpoint needs authentication
 
 ```
 curl -X GET http://{IP}:{PORT}/any/endpoint?param1=foo&param2=bar --cookie "access_key=7E74516EFA4FD55DE3E7CD017DF7D364D2DF7B94122740476DFBFB5F10523D6F"
 ```
 
-## Endpoints
-### ✅wav
+# Endpoints
+- ##### ✅ - Final release, 🆗 - Awaiting final tests, 🈸 - WIP,  🈵 - Development in planning, ⏸️ - Paused,
+- ##### 🈲 - Needs rework, 🆘 - Bug,  ❌ - Canceled,
+- ##### 🆙 - Last updated, 🆕  - New.
+
+
+## 🈸 wav
 ___
 A  service for generating, transmitting, and decrypting `WAV` streams encoded with binary data (pre-encrypted using `AES-256` in `GCM`/`CBC` modes) using static or dynamic `N-FSK` modulation.\
 Supports arbitrary frequency, number of channels, and data formats for representing sampling widths (from `uint8` to `uint64` or `float64`).\
 Allows to create infinite audio streams based on random data, even with non-standard parameters (ex: `int64` per sample, more than different `64` channels or `MHz`+ sample rate value).
 
-### 🈳tox
+## 🈸 Mesh Networks
 ___
-Basic commands:
-- ✅ Send a message
-- ✅ Receive incoming messages
 
-### 🈸Mesh Networks
-___
-A service for remotely managing nodes in mesh networks, such as `meshtastic` or `meshcore`.
-#### Meshtastic
+### 🆗 tox
+
 Basic commands:
-- ✅ Get a list of known nodes
-- ✅ Send a message
-- 🈳 Receive incoming messages
-- 🈳 Get metrics for the node in use.
-#### Meshcore
-🈳**WIP**
-### 🈳SMMSGateway
+- 🆗 Load saved profile from file.
+- 🆗 Create new profile file using any private key.
+- 🆗 Save profile to file.
+- 🆗 Accept invite.
+- 🆗 Send a message.
+- 🆗 Receive incoming messages.
+- 🆗 DB for nodes.
+
+
+A service for remotely managing nodes in mesh networks, such as `meshtastic` or `meshcore`.
+### 🆗 Meshtastic
+Basic commands:
+- 🆗 Get a list of known nodes.
+- 🆗 Send a message.
+- 🆗 Receive incoming messages.
+- 🈵 Get metrics for the node in use.
+
+### 🈵 Meshcore
+🈵 **WIP**
+
+## 🈵 SMMSGateway
 ___
-🈳**WIP**
+🈵 **WIP**
 
 ## TODO, Features, Bugs, Changelog, etc
 ___
 ### WIP
-- 🈸Dynamic FSK & Smooth generation(decryption already supported).
+- 🈵Dynamic FSK & Smooth generation(decryption already supported).
+- 🆕 Create core module that handle for threads.
+- 🆕 Split `MeshtasticKnownNode` per static and dynamic parts.
+- 🆕 Create endpoints for _tox_ and _meshtastic_.
+
 ### Features
 - ✅ ~~Adding central logging system.~~
-- 🈳 _Different_ data for _different_ channels.
-- 🈳 Working with _different_ nodes.
-- 🈳 Detecting symbols by _intervals_, but not by single values while decryption.
+- ✅ ~~Working with _different_ mesh nodes~~.
 - ✅ ~~`/wav/text/aes256_N-FSK/decrypter`~~.
 - ✅ ~~Smoothing symbols values.~~
 - ✅ ~~Dynamic smoothing symbols values.~~
-- 🈳 _Negative_ smoothing symbols values.
-- 🈳 Dynamic negative smoothing symbols values.
 - ✅ ~~Add dynamic FSK and dynamic smoothing to crypter form.~~
 - ✅ ~~Decryptor file size limit.~~
 - ✅ ~~Adding float as symbols.~~
+- 🆙 _Different_ data for _different_ audio channels.
+- 🆙 Detecting symbols by _intervals_, but not by single values while decryption.
+- 🆙 _Negative_ smoothing symbols values.
+- 🆙 Dynamic negative smoothing symbols values.
 
 ### Bugs
-- ✴️✅ ~~Incorrect max value(+1) with 64 bit types in `_create_value_symbols`.~~
-- ❌ Browser requests twice same stream `request.range` 
-- ❌ `crypter` `POST` bug.
+- ✅ ~~Incorrect max value(+1) with 64 bit types in `_create_value_symbols`.~~
+- 🆘 Browser requests twice same stream `request.range` 
+- 🆘 `crypter` `POST` bug.

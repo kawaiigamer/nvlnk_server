@@ -1,6 +1,5 @@
 import argparse
 import os
-import threading
 import traceback
 import uuid
 from dataclasses import dataclass
@@ -13,11 +12,9 @@ from typing import Dict, Union, List, Optional
 from flask import Flask, request, Response, render_template, session
 
 from server_description import get_wav_params, get_aes_params, get_wav_fsk_params, get_system_info, get_private_data
-from server_logging import DefaultLogger, EndpointLogger
-from server_meshtastic import meshtastic_get_nodes, meshtastic_save_dumped_nodes, meshtastic_json_format_dumped_nodes, \
-    MeshtasticKnownNode, meshtastic_send_message
+from server_logging import DefaultLogger, EndpointLogger, ExtendedLevelsLogger
+from server_meshtastic import MeshtasticWireHandleThread
 from server_private import EndpointPrivateConfig
-from server_queue import LimitedTypedQueue, InternalQueuedItem
 from server_storage import StreamsStorage
 from server_streaming import AsyncAudioStream, AsyncAudioStreamBase, WavAudio, WavAudioNFSK, AESCrypterBase
 from server_tox import ToxClientThread
@@ -27,6 +24,7 @@ class HTTPCodes(Enum):
     OK = 200
     NO_CONTENT = 204
     UNAUTHORIZED = 401
+    NOT_FOUND = 404
     NOT_ACCEPTABLE = 406
     CONTENT_TOO_LARGE = 413
     MISDIRECTED_REQUEST = 421
@@ -40,34 +38,54 @@ class EndpointPrivateHandlerObject:
     streams_storage: StreamsStorage
     private_data: EndpointPrivateConfig
     logger: EndpointLogger
-    tox_instance: Optional[ToxClientThread] = None
-    tox_instance: Optional[threading.Thread] = None
-
+    tox_instance: ToxClientThread = None
+    meshtastic_instances: Dict[str, MeshtasticWireHandleThread] = None
 
 def init_endpoint_private_handle_object() -> EndpointPrivateHandlerObject:
     __private_data = get_private_data()
-    __logger = DefaultLogger(__private_data)
+    __logger = ExtendedLevelsLogger(__private_data)
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        __logger.visualize()
     handler: EndpointPrivateHandlerObject = EndpointPrivateHandlerObject(
         streams_storage=StreamsStorage(
-        clear_interval=timedelta(seconds=__private_data.default_session_lifetime_seconds),
-        stream_lifetime=timedelta(seconds=__private_data.default_session_lifetime_seconds),
+        clear_interval=timedelta(seconds=__private_data.http_session_lifetime),
+        stream_lifetime=timedelta(seconds=__private_data.http_session_lifetime),
         logger=__logger),
         private_data=get_private_data(),
         logger=__logger)
-    if __private_data.tox_config:
-        try:
-            if os.environ.get("WERKZEUG_RUN_MAIN") == "true":  #TODO: remove after debug
-                handler.tox_instance = ToxClientThread(__logger, __private_data.tox_config)
-                handler.tox_instance = threading.Thread(target=handler.tox_instance, daemon=True)
+
+    if os.environ.get("WERKZEUG_RUN_MAIN") == "true":  # TODO: remove after debug
+
+        if __private_data.tox_config:
+            try:
+                handler.tox_instance = ToxClientThread(__logger, "tox", __private_data.tox_config)
                 handler.tox_instance.start()
-        except Exception as exp:
-            handler.logger.error(f"Exception while initialization tox_data thread {exp}")
+                #handler.tox_instance = IOQueuedThread(ToxClientThread(__logger, __private_data.tox_config),
+                               #LimitedTypedQueue[InternalQueuedItem](__logger, max_size=handler.private_data.tox_config.queue_max_size, name="Tox"))
+                # handler.tox_instance_cmd_queue = queue.Queue()
+                # handler.tox_instance = ToxClientThread(__logger, __private_data.tox_config)
+                # handler.tox_instance = threading.Thread(target=handler.tox_instance, daemon=True, args=(handler.tox_instance_cmd_queue,))
+                #
+            except Exception as exp:
+                handler.logger.exception(f"Exception while initialization tox instance thread: {exp}")
+
+        if __private_data.meshtastic_nodes:
+                handler.meshtastic_instances = dict()
+                for node in __private_data.meshtastic_nodes.values():
+                    try: #LimitedTypedQueue[InternalQueuedItem](logger, max_size=config.queue_max_size, name=f"meshtastic_{config.short_name}")
+                        handler.meshtastic_instances[node.short_name] = MeshtasticWireHandleThread(handler.logger, node)
+                        #handler.meshtastic_instances[node.short_name] = threading.Thread(target=handler.meshtastic_instances[node.short_name], daemon=True)
+                        handler.meshtastic_instances[node.short_name].start()
+                        #handler.meshtastic_instances[node.short_name] = __init_thread_instance(MeshtasticWireHandleThread(handler.logger, node))
+                    except Exception as exp:
+                        handler.logger.exception(f"Exception while initialization meshtastic instance: {node.short_name}, thread: {exp}")
+
+    app.permanent_session_lifetime = timedelta(seconds=handler.private_data.http_session_lifetime)
     return handler
 
 
-handler: EndpointPrivateHandlerObject = init_endpoint_private_handle_object()
+handler: EndpointPrivateHandlerObject
 app = Flask(__name__)
-app.permanent_session_lifetime = timedelta(seconds=handler.private_data.default_session_lifetime_seconds)
 app.secret_key = uuid.uuid4().hex
 
 
@@ -167,8 +185,6 @@ def wav_random_aes256_stream(stream: Union[AsyncAudioStream, AsyncAudioStreamBas
         return stream
     return AsyncAudioStream.from_base(stream, wav=WavAudioNFSK(**get_wav_fsk_params(request.args), logger=handler.logger, crypter=AESCrypterBase.from_config(get_aes_params(request.args))), logger=handler.logger)
 
-
-
 @app.route('/wav/random/aes256_N-FSK/stream')
 @internal_server_error_throwable
 @authentication_required
@@ -207,7 +223,38 @@ def wav_text_aes256_nfsk_decrypter():
     return AsyncAudioStream(wav=WavAudioNFSK(**get_wav_fsk_params(request.args), logger=handler.logger), crypter=AESCrypterBase.from_config(get_aes_params(request.args)), logger=handler.logger).wav_aes_nfsk_decrypt(request.data), 200
 
 # -------------------- wav ---------------------------
+# -------------------- tox ---------------------------
 
+@app.route('/tox/send_message', methods=['GET'])
+@internal_server_error_throwable
+@authentication_required
+def tox_send_message_endpoint():
+    if not handler.tox_instance or not handler.tox_instance.is_running:
+        return "Tox service is not acceptable", HTTPCodes.SERVICE_UNAVAILABLE.value
+    text = request.args.get("text")
+    chat_id: int = int(request.args.get("chat_id"))
+    if not text or not chat_id:
+        return f"Text: {text}, or chat id: {chat_id} is invalid or not set", HTTPCodes.NO_CONTENT.value
+    try:
+        handler.tox_instance.send_message_safely(chat_id, text)
+        return "Sending message command queued", HTTPCodes.OK.value
+    except Exception as exp:
+        return f"Exception while sending tox_data message: text: {text}, chat id: {chat_id}, Exception: {exp}", HTTPCodes.INTERNAL_SERVER_ERROR.value
+
+
+@app.route('/tox/get_messages', methods=['GET'])
+@internal_server_error_throwable
+@authentication_required
+def tox_get_messages_endpoint():
+    if not handler.tox_instance or not handler.tox_instance.is_running:
+        return "Tox client is not running", HTTPCodes.SERVICE_UNAVAILABLE.value
+    try:
+        count: int = int(request.args.get("count", handler.private_data.tox_config.input_queue_max_size))
+    except ValueError:
+        return f"Count param is invalid: {request.args.get("count")}", HTTPCodes.NOT_ACCEPTABLE.value
+    return Response([item.to_json() for item in handler.tox_instance.output_queue.get_batch(count)], mimetype='application/json')
+
+# -------------------- tox ---------------------------
 # -------------------- meshtastic --------------------
 
 @app.route('/meshtastic/get_nodes', methods=['GET'])
@@ -217,72 +264,63 @@ def meshtastic_get_nodes_endpoint():
     current_node = request.args.get("ID")
     if available_nodes_count > 1 and not current_node:
         return "Node ID is not set", HTTPCodes.CONFLICT.value
-    result: List[MeshtasticKnownNode] = meshtastic_get_nodes(logger=handler.logger, short_name=current_node, count=int(request.args.get("count", 250)))
-    if request.args.get("save") == "true":
-        meshtastic_save_dumped_nodes(result)
-    return Response(meshtastic_json_format_dumped_nodes(result), mimetype='application/json')
+    if node := handler.meshtastic_instances.get(current_node):
+        result = node.get_all_known_nodes_via_usb()
+        if request.args.get("save") == "true":
+            node.save_dumped_nodes(result)
+        response: str = node._json_format_dumped_nodes(result)
+        handler.logger.dump(f"Nodes summary:\n{response}")
+        return Response(response, mimetype='application/json')
+    return f"Node with ID {current_node} not found!", HTTPCodes.NOT_FOUND.value
 
 
 @app.route('/meshtastic/send_message', methods=['GET'])
 @authentication_required
 def meshtastic_send_message_endpoint():
-    MAX_TEXT_LENGTH = 92
+    MAX_TEXT_LENGTH = 160
     current_node = request.args.get("ID")
-    if text := request.args.get("text"):
-        if len(text) > MAX_TEXT_LENGTH:
-            return f"Text message too large: {len(text)} > {MAX_TEXT_LENGTH}!", HTTPCodes.CONTENT_TOO_LARGE.value
-        try:
-            meshtastic_send_message(handler.logger, text, int(request.args.get("ch", 0)), int(request.args.get("to", -1)), short_name=current_node)
-            return "", HTTPCodes.OK.value
-        except ValueError:
-            msg = f"Channel index: {request.args.get("ch")} and destination id: {request.args.get("to")} must be integers!"
+    if node := handler.meshtastic_instances.get(current_node):
+        if not node.is_running:
+            return f"Node with ID {current_node} is not running", HTTPCodes.SERVICE_UNAVAILABLE.value
+        if text := request.args.get("text"):
+            if len(text) > MAX_TEXT_LENGTH:
+                return f"Text message too large: {len(text)} > {MAX_TEXT_LENGTH}!", HTTPCodes.CONTENT_TOO_LARGE.value
+            try:
+                node.send_message(text, int(request.args.get("ch", 0)), int(request.args.get("to", -1)))
+                return "", HTTPCodes.OK.value
+            except ValueError:
+                msg = f"Channel index: {request.args.get("ch")} and destination id: {request.args.get("to")} must be integers!"
+            except Exception as e:
+                msg = f"Exception while sending message: {e}"
             handler.logger.exception(msg)
             return msg, HTTPCodes.NOT_ACCEPTABLE.value
     else:
         return "Message text is not set", HTTPCodes.MISDIRECTED_REQUEST.value
 
 
-# get_msgs?count last
-# get_metrics?last_hours= (def=24)
+@app.route('/meshtastic/get_messages', methods=['GET'])
+@internal_server_error_throwable
+@authentication_required
+def meshtastic_get_messages_endpoint():
+    current_node = request.args.get("ID")
+    if node := handler.meshtastic_instances.get(current_node):
+        if not node.is_running:
+            return f"Node with ID {current_node} is not running", HTTPCodes.SERVICE_UNAVAILABLE.value
+        try:
+            count: int = int(request.args.get("count", node.i))
+        except ValueError:
+            return f"Count param is invalid: {request.args.get("count")}", HTTPCodes.NOT_ACCEPTABLE.value
+        return Response([item.to_json() for item in node._output_queue.get_batch(count)],
+                        mimetype='application/json')
+    return f"Node with ID {current_node} not found", HTTPCodes.NOT_FOUND.value
 
 # -------------------- meshtastic --------------------
 
-# -------------------- tox ---------------------------
-@app.route('/tox/send_message', methods=['GET'])
-@internal_server_error_throwable
-@authentication_required
-def tox_send_message_endpoint():
-    if not handler.tox_instance or not handler.tox_instance.is_running():
-        return "Tox service is not acceptable", HTTPCodes.SERVICE_UNAVAILABLE.value
-    text = request.args.get("text")
-    chat_id: int = int(request.args.get("chat_id"))
-    if not text or not chat_id:
-        return f"Text: {text}, or chat ID: {chat_id} is invalid or not set", HTTPCodes.NO_CONTENT.value
-    try:
-        handler.tox_instance.send_message_safely(chat_id, text)
-        return "Sending message command queued", HTTPCodes.OK.value
-    except Exception as exp:
-        return f"Exception while sending tox_data message: Text: {text}, chat ID: {chat_id}, Exception: {exp}", HTTPCodes.INTERNAL_SERVER_ERROR.value
-
-
-@app.route('/tox/get_messages', methods=['GET'])
-@internal_server_error_throwable
-@authentication_required
-def tox_get_messages_endpoint():
-    if not handler.tox_instance or not handler.tox_instance.is_running():
-        return "Tox client is not running", HTTPCodes.SERVICE_UNAVAILABLE
-    try:
-        count: int = int(request.args.get("count", handler.private_data.default_queue_length))
-    except ValueError:
-        return f"Count param is invalid: {request.args.get("count")}", HTTPCodes.NOT_ACCEPTABLE
-    return Response([item.to_json() for item in handler.tox_instance.events_queue.get_batch(count)], mimetype='application/json')
-
-# -------------------- tox ---------------------------
-
-
 # -------------------- MAIN --------------------
 
+
 def main() -> None:
+    handler = init_endpoint_private_handle_object()
     # --- Parse args
     parser = argparse.ArgumentParser(description="ws-http-endpoint")
     parser.add_argument('-k', '--key', type=str, default="", help='Key for decrypting private data (AES-256 CBC)')
@@ -291,7 +329,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # --- Starting endpoint
-    handler.logger.debug(f"Endpoint version: {handler.private_data.version}, release type: {handler.private_data.release_type} started!")
+    handler.logger.system(f"Endpoint version: {handler.private_data.version.__str__()}, release type: {handler.private_data.release_type} started!")
     app.run(host='0.0.0.0', port=args.port, debug=args.debug, use_reloader=True)
 
 
