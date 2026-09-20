@@ -45,8 +45,8 @@ class ToxInterlocutor:
 
 
 class ToxClientThread(IOQueuedThread):
-    def __init__(self, logger: EndpointLogger, uname: str, config: ToxClientConfig):
-        super().__init__(logger, uname, config.input_queue_max_size, config.output_queue_max_size)
+    def __init__(self, logger: EndpointLogger,  config: ToxClientConfig):
+        super().__init__(logger, config.instance_config)
         self._io_mutex = threading.Lock()
         self._config = config
         self._tox_lib = self._init_tox_native_library()
@@ -294,10 +294,10 @@ class ToxClientThread(IOQueuedThread):
         self._running = True
         self._logger.info("Tox client thread is running!")
 
-        if self._config.interval is None:
+        if self._config.instance_config.interval is None:
             sleep_interval = self._tox_lib.tox_iteration_interval(self._tox_instance) / 1000.0
         else:
-            sleep_interval = self._config.interval
+            sleep_interval = self._config.instance_config.interval
         self._logger.debug(f"Tox client sleep interval: {sleep_interval} sec")
 
         connected_flag: bool = False

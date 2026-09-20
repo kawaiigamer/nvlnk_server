@@ -9,11 +9,13 @@ from server_logging import EndpointLogger
 from server_streaming import AsyncAudioStream
 
 
-def with_mutex(mutex_name: str):
+def with_mutex(mutex_name: str, wait: bool = True):
     def factory(f):
         @wraps(f)
         def mutex_function(self, *args, **kwargs):
             if mutex := getattr(self, mutex_name, None):
+                if not wait and mutex.locked():
+                    raise RuntimeError("Mutex is locked")
                 with mutex:
                     return f(self, *args, **kwargs)
         return mutex_function

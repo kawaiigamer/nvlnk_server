@@ -1,9 +1,7 @@
 import argparse
-import os
 import traceback
 import uuid
-from dataclasses import dataclass
-from datetime import timedelta, datetime
+from datetime import timedelta
 from enum import Enum
 
 from functools import wraps
@@ -11,13 +9,10 @@ from typing import Dict, Union, List, Optional
 
 from flask import Flask, request, Response, render_template, session
 
-from server_description import get_wav_params, get_aes_params, get_wav_fsk_params, get_system_info, get_private_data
-from server_logging import DefaultLogger, EndpointLogger, ExtendedLevelsLogger
-from server_meshtastic import MeshtasticWireHandleThread
-from server_private import EndpointPrivateConfig
-from server_storage import StreamsStorage
+from server_core import EndpointPrivateHandlerObject, ServerCore
+from server_description import get_wav_params, get_aes_params, get_wav_fsk_params, get_system_info
+
 from server_streaming import AsyncAudioStream, AsyncAudioStreamBase, WavAudio, WavAudioNFSK, AESCrypterBase
-from server_tox import ToxClientThread
 
 
 class HTTPCodes(Enum):
@@ -33,58 +28,9 @@ class HTTPCodes(Enum):
     SERVICE_UNAVAILABLE = 503
 
 
-@dataclass
-class EndpointPrivateHandlerObject:
-    streams_storage: StreamsStorage
-    private_data: EndpointPrivateConfig
-    logger: EndpointLogger
-    tox_instance: ToxClientThread = None
-    meshtastic_instances: Dict[str, MeshtasticWireHandleThread] = None
-
-def init_endpoint_private_handle_object() -> EndpointPrivateHandlerObject:
-    __private_data = get_private_data()
-    __logger = ExtendedLevelsLogger(__private_data)
-    if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
-        __logger.visualize()
-    handler: EndpointPrivateHandlerObject = EndpointPrivateHandlerObject(
-        streams_storage=StreamsStorage(
-        clear_interval=timedelta(seconds=__private_data.http_session_lifetime),
-        stream_lifetime=timedelta(seconds=__private_data.http_session_lifetime),
-        logger=__logger),
-        private_data=get_private_data(),
-        logger=__logger)
-
-    if os.environ.get("WERKZEUG_RUN_MAIN") == "true":  # TODO: remove after debug
-
-        if __private_data.tox_config:
-            try:
-                handler.tox_instance = ToxClientThread(__logger, "tox", __private_data.tox_config)
-                handler.tox_instance.start()
-                #handler.tox_instance = IOQueuedThread(ToxClientThread(__logger, __private_data.tox_config),
-                               #LimitedTypedQueue[InternalQueuedItem](__logger, max_size=handler.private_data.tox_config.queue_max_size, name="Tox"))
-                # handler.tox_instance_cmd_queue = queue.Queue()
-                # handler.tox_instance = ToxClientThread(__logger, __private_data.tox_config)
-                # handler.tox_instance = threading.Thread(target=handler.tox_instance, daemon=True, args=(handler.tox_instance_cmd_queue,))
-                #
-            except Exception as exp:
-                handler.logger.exception(f"Exception while initialization tox instance thread: {exp}")
-
-        if __private_data.meshtastic_nodes:
-                handler.meshtastic_instances = dict()
-                for node in __private_data.meshtastic_nodes.values():
-                    try: #LimitedTypedQueue[InternalQueuedItem](logger, max_size=config.queue_max_size, name=f"meshtastic_{config.short_name}")
-                        handler.meshtastic_instances[node.short_name] = MeshtasticWireHandleThread(handler.logger, node)
-                        #handler.meshtastic_instances[node.short_name] = threading.Thread(target=handler.meshtastic_instances[node.short_name], daemon=True)
-                        handler.meshtastic_instances[node.short_name].start()
-                        #handler.meshtastic_instances[node.short_name] = __init_thread_instance(MeshtasticWireHandleThread(handler.logger, node))
-                    except Exception as exp:
-                        handler.logger.exception(f"Exception while initialization meshtastic instance: {node.short_name}, thread: {exp}")
-
-    app.permanent_session_lifetime = timedelta(seconds=handler.private_data.http_session_lifetime)
-    return handler
-
-
-handler: EndpointPrivateHandlerObject
+# -- Globals
+core: ServerCore = None
+handler: EndpointPrivateHandlerObject = None
 app = Flask(__name__)
 app.secret_key = uuid.uuid4().hex
 
@@ -152,9 +98,13 @@ def favicon():
 @app.route("/")
 @authentication_required
 def main_page():
-    return Response(get_system_info(), mimetype='application/json')
+    runtime = {"runtime": {}}
+    if core:
+        runtime["runtime"]["working_instances"] = [wi.name for wi in core.get_working_instances()]
+    return Response(get_system_info(runtime), mimetype='application/json')
 
 # -------------------- wav --------------------
+
 
 @app.route('/wav/random/stream')
 @internal_server_error_throwable
@@ -320,20 +270,22 @@ def meshtastic_get_messages_endpoint():
 
 
 def main() -> None:
-    handler = init_endpoint_private_handle_object()
-    # --- Parse args
+    # -- Init globals
+    core = ServerCore()
+    handler = core.handler
+    # -- Parse args
     parser = argparse.ArgumentParser(description="ws-http-endpoint")
     parser.add_argument('-k', '--key', type=str, default="", help='Key for decrypting private data (AES-256 CBC)')
     parser.add_argument('-p', '--port', type=int, default=60600, help='port(default=%(default)s)')
     parser.add_argument("-d", "--debug", default=True, help="enable debug mode(default=%(default)s)")
     args = parser.parse_args()
+    # -- Starting endpoint
+    core.logger.system(f"Endpoint version: {core.private_data.version.__str__()}, release type: {core.private_data.release_type} started!")
+    core.start_core_threads()
 
-    # --- Starting endpoint
-    handler.logger.system(f"Endpoint version: {handler.private_data.version.__str__()}, release type: {handler.private_data.release_type} started!")
+    app.permanent_session_lifetime = timedelta(seconds=core.private_data.http_session_lifetime)
     app.run(host='0.0.0.0', port=args.port, debug=args.debug, use_reloader=True)
 
 
 if __name__ == '__main__':
     main()
-
-

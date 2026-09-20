@@ -1,29 +1,55 @@
 import threading
+from enum import Enum, auto, unique
+from typing import Type
 
 from server_logging import EndpointLogger
+from server_private import InstanceThreadConfig
 from server_queue import FixedTypedConcurrentDequeue, InternalQueuedItem
 from server_storage import with_mutex
 
+
+@unique
+class ThreadState(Enum):
+    ERROR_DOWN = auto()
+    READY = auto()
+    RUNNING = auto()
+    FINALIZING = auto()
+    FINALIZED = auto()
+    PAUSED = auto()
+    STOPPED = auto()
+
+
 class IOQueuedThread(threading.Thread):
-    def __init__(self, logger: EndpointLogger, uname: str, in_queue_size: int, out_queue_size: int):
+    def __init__(self, logger: EndpointLogger, config: InstanceThreadConfig):
         super().__init__(daemon=True)
         self._logger = logger
-        self._name = uname
-        self._in_queue_size = in_queue_size
-        self._out_queue_size = out_queue_size
-        self._input_queue: FixedTypedConcurrentDequeue = None
-        self._output_queue: FixedTypedConcurrentDequeue = None
-        self._init_internal_dequeues()
+        self._name = config.instance_name
+        self._node_config: InstanceThreadConfig = config
+        self._output_queue: FixedTypedConcurrentDequeue[InternalQueuedItem] = FixedTypedConcurrentDequeue[InternalQueuedItem](logger, max_size=self._node_config.output_queue_max_size, name=f"{self.name}_output_dequeue")
+        self._input_queue: FixedTypedConcurrentDequeue[InternalQueuedItem] = FixedTypedConcurrentDequeue[InternalQueuedItem](logger, max_size=self._node_config.output_queue_max_size, name=f"{self.name}_input_dequeue")
         self._mutex = threading.Lock()
         self._stop_signal = threading.Event()
+        self._thread_state: ThreadState = ThreadState.READY
+
+    @classmethod
+    def from_another(cls, other_thread: Type["cls"]):
+        return cls(other_thread._logger, other_thread.config)
 
     @property
     def name(self) -> str:
         return self._name
 
-    def _init_internal_dequeues(self):
-        self._input_queue: FixedTypedConcurrentDequeue = FixedTypedConcurrentDequeue[InternalQueuedItem](self._logger, self._in_queue_size, f"{self._name}_input_queue")
-        self._output_queue: FixedTypedConcurrentDequeue = FixedTypedConcurrentDequeue[InternalQueuedItem](self._logger, self._out_queue_size, f"{self._name}_output_queue")
+    @property
+    def _state(self):
+        return self._thread_state
+
+    @_state.setter
+    def _state(self, new_state: ThreadState):
+        if self._thread_state == new_state:
+            self._logger.warning(f"State is already is {self._thread_state.name}")
+            return
+        self._logger.core(f"Changing state: {self._thread_state.name} -> {new_state.name}")
+        self._thread_state = new_state
 
     @property
     def input_queue(self) -> FixedTypedConcurrentDequeue[InternalQueuedItem]:
@@ -32,54 +58,24 @@ class IOQueuedThread(threading.Thread):
     @property
     def output_queue(self) -> FixedTypedConcurrentDequeue[InternalQueuedItem]:
         return self._output_queue
-
     @property
     def stop_signal(self) -> threading.Event:
         return self._stop_signal
-
     @property
     def mutex(self) -> threading.Lock:
         return self._mutex
 
     @property
     def is_running(self) -> bool:
-        return self._running
+        return self._state in (ThreadState.RUNNING, ThreadState.FINALIZING, ThreadState.FINALIZED)
 
     @with_mutex("mutex")
-    def finalize(self, join: bool = False, recreate_queues: bool = True):
-        if self.is_running and not self.stop_signal.is_set():
-            self._running = False
-            self.stop_signal.set()
-            if recreate_queues:
-                self.input_queue.recreate()
-                self.output_queue.recreate()
-            else:
-                self.input_queue = None
-                self.output_queue = None
-        if join:
-            self.join()
-
-    @with_mutex("mutex")
-    def renew(self, timeout: float = 30.0, reinit_dequeues: bool = False, reset_internal_flags: bool = True) -> bool:
-        if self.is_alive() and self.stop_signal.is_set():
-            self.join(timeout)
-            if not self.is_alive():
-                self._logger.system(f"Thread: {self.name} is finalized, memory allocated for internal structs is freed!")
-
-                if reinit_dequeues:
-                    self._init_internal_dequeues()
-                if hasattr(self, '_started'):
-                    self._started._flag = False
-                if hasattr(self, '_tstate_lock'):
-                    self._tstate_lock = None
-                self.stop_signal.clear()
-                self._logger.warning(f"Thread: {self.name} is renewed, internal structs resets and now it is ready for start() again! But this method depends from interpritater and NOT recomended!")
-                return True
-            else:
-                return False
-
-    @with_mutex("mutex")
-    def stop_command(self, immediately: bool = True):
-        self._logger.notify(f"Stop command received {"immediately" if immediately else ""}")
-        cmd = ("stop", None)
-        self._input_queue.put_top(cmd) if immediately else self._input_queue.put(cmd)
+    def finalize(self):
+        "Only sets signal flag, changes state, clears inner queues"
+        if self._state not in ThreadState.FINALIZING:
+           self._logger.debug("Starting finalize")
+           self._state = ThreadState.FINALIZING
+           self._stop_signal.set() if not self._stop_signal.is_set() else self._logger.warning("Stop signal was set before finalize call")
+        for q in (self._input_queue, self._output_queue):
+            q.drop()
+        self._state = ThreadState.FINALIZED

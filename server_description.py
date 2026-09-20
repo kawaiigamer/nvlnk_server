@@ -8,7 +8,7 @@ import numpy as np
 from server_private import load_private_data, EndpointPrivateConfig
 
 __SECRET_KEY_256 = "898946929E5274DDE600CD7788B6C557377716197A59A6C5D9063A22C9E40741"
-PRIVATE_DATA: EndpointPrivateConfig = load_private_data(__SECRET_KEY_256)
+__PRIVATE_DATA: EndpointPrivateConfig = load_private_data(__SECRET_KEY_256)
 
 
 @dataclass
@@ -96,7 +96,7 @@ class MainEndpointDescription(OrderedDataclass):
 
     @property
     def started_time(self) -> str:
-        return self.started_at.strftime(PRIVATE_DATA.detetime_fmt)
+        return self.started_at.strftime(__PRIVATE_DATA.detetime_fmt)
 
     def to_dict(self) -> Dict[str, Any]:
         return {"name": self.name, "status": self.status, "release_type": self.release_type, "started_at": self.started_time, "timezone": self.timezone,
@@ -119,7 +119,7 @@ _wav_dynamic_nfsk_params_descr: List[Param] = [Param("dfsk", "dynamic_fsk", "fal
                                                Param("dsm_min", "dynamic_smoothing_min", 1.0, "Min level for dynamic FSK"), Param("dsm_max", "dynamic_smoothing_max", 3.0, "Max level for dynamic FSK"),
                                                ]
 _wav_nfsk_decrypt_errors_descr: List[Param] = [Param("errors", "errors_mode", "ignore", "'ignore' - ignores any error, 'break' - interrupts decrypt process, 'skip' - skipping error frame, continuing to next frame")]
-_aes_params_descr: List[Param] = [Param("key", "key_str", PRIVATE_DATA.aes265_key, "256 bits key"), Param("mode", "mode", "CBC", "AES256 mode(GCM or CBC)"),
+_aes_params_descr: List[Param] = [Param("key", "key_str", __PRIVATE_DATA.aes265_key, "256 bits key"), Param("mode", "mode", "CBC", "AES256 mode(GCM or CBC)"),
                                   Param("iv", "iv_length", 16, "Initialization Vector (IV) length in bytes"), Param("tag", "tag", "notag", "Authentication Tag(only for GCM mode)")
                                   ]
 _aes_text_params_descr: List[Param] = [Param("text", "text", "", "Plain text for encryption")]
@@ -202,7 +202,7 @@ _endpoints: Dict[str, Union[RoutePart, EndpointPart]] = {
                                 #  ------------------------------------- main queue -------------------------------------
 
 
-_main = MainEndpointDescription("yue-ws-main", "online", PRIVATE_DATA.release_type, datetime.now(), "JST", PRIVATE_DATA.tox_config.profile_name, [node_key for node_key in PRIVATE_DATA.meshtastic_nodes.keys()], _endpoints)
+_main = MainEndpointDescription("yue-ws-main", "online", __PRIVATE_DATA.release_type, datetime.now(), "JST", __PRIVATE_DATA.tox_config.profile_file_name, [node_key for node_key in __PRIVATE_DATA.meshtastic_nodes.keys()], _endpoints)
 
 
 def __get_params_from_request(args, params_descr: List[Param]) -> Optional[Dict[str, Any]]:
@@ -223,9 +223,8 @@ def get_aes_params(args) -> Optional[Dict[str, Any]]:
     return __get_params_from_request(args, _aes_params_descr + _aes_text_params_descr)
 
 
-def get_system_info() -> str:
-    return json.dumps(_main, cls=__DataclassEncoder, indent=4, ensure_ascii=False)
-
+def get_system_info(additional_data: Dict = {}) -> str:
+    return json.dumps({"main": _main, **additional_data}, cls=__DataclassEncoder, indent=4, ensure_ascii=False)
 
 def get_private_data() -> EndpointPrivateConfig:
-    return PRIVATE_DATA
+    return __PRIVATE_DATA

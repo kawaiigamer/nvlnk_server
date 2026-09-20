@@ -104,9 +104,9 @@ class MeshtasticWireHandleThread(IOQueuedThread):
     _PORT_VID = 12346
 
     def __init__(self, logger: EndpointLogger, config: MeshtasticInternalNodeData):
-        super().__init__(logger, f"meshtastic_{config.short_name}", config.input_queue_max_size, config.output_queue_max_size)
+        super().__init__(logger, config.instance_config)
         self._usb_port_mutex = threading.Lock()
-        self._config = config
+        self._node_config = config
         self._interface = None
         pub.subscribe(self.on_receive_message, "meshtastic.receive")
 
@@ -154,11 +154,11 @@ class MeshtasticWireHandleThread(IOQueuedThread):
             )
             my_node = interface.getMyNodeInfo()
             current_short_name = my_node.get('user', {}).get('shortName')
-            if current_short_name == self._config.short_name:
-                self._logger.debug(f"Interface {self._config.short_name} found")
+            if current_short_name == self._node_config.short_name:
+                self._logger.debug(f"Interface {self._node_config.short_name} found")
                 return interface
         if usb_ports:
-            self._logger.critical(f"Interface {self._config.short_name} not found, using first another interface")
+            self._logger.critical(f"Interface {self._node_config.short_name} not found, using first another interface")
             return meshtastic.serial_interface.SerialInterface(
                 devPath=usb_ports[0].device,
                 connectNow=True
@@ -167,7 +167,7 @@ class MeshtasticWireHandleThread(IOQueuedThread):
 
     @with_mutex("usb_port_mutex")
     def send_message(self, text: str, channel: int = 0, destinationId: int = -1) -> None:
-        self._logger.debug(f"Trying connection to by wire - {self._config.short_name if self._config.short_name else "auto finding"}")
+        self._logger.debug(f"Trying connection to by wire - {self._node_config.short_name if self._node_config.short_name else "auto finding"}")
         try:
             self._logger.debug(f"Trying to send message Text: {text} Channel: {channel}, destinationId: {destinationId}")
             if destinationId != -1:
@@ -201,9 +201,9 @@ class MeshtasticWireHandleThread(IOQueuedThread):
         self._running = False
 
     def run(self):
-        self._logger.debug(f"Starting meshtastic node thread: {self._config.short_name}")
+        self._logger.debug(f"Starting meshtastic node thread: {self._node_config.short_name}")
         try:
-            self._logger.debug(f"Trying connection to by wire: {self._config.short_name if self._config.short_name else "auto finding"}")
+            self._logger.debug(f"Trying connection to by wire: {self._node_config.short_name if self._node_config.short_name else "auto finding"}")
             self._interface = self._get_usb_interface()
         except Exception as exp:
             self._logger.exception(f"SerialInterface connection exception: {exp}")
@@ -217,7 +217,7 @@ class MeshtasticWireHandleThread(IOQueuedThread):
                         break
                     for cmd_type, data in items:
                         self._handle_command(cmd_type, data)
-                    time.sleep(self._config.interval)
+                    time.sleep(self._node_config.interval)
                 except Exception as e:
                     self._logger.error(f"Error in thread: {self.name}, error: {e}")
             else:
@@ -272,7 +272,7 @@ class MeshtasticWireHandleThread(IOQueuedThread):
                         uptime_seconds = dev_metrics.get("uptimeSeconds", -1)
                         ch_a_aut_provides = dev_metrics.get("channelUtilization") and dev_metrics.get("airUtilTx")
 
-                    is_valid_pos = self._config.real_position and all(c is not None for c in self._config.real_position)
+                    is_valid_pos = self._node_config.real_position and all(c is not None for c in self._node_config.real_position)
                     is_valid_loc = (latitude, longitude) and (latitude, longitude) != (0, 0) and all(
                         c is not None for c in (latitude, longitude))
 
@@ -292,7 +292,7 @@ class MeshtasticWireHandleThread(IOQueuedThread):
                         latitude=latitude,
                         longitude=longitude,
                         altitude_meters=altitude_meters,
-                        _distance_km=self._calculate_geodistanse_in_km(self._config.real_position, (latitude, longitude)) if is_valid_pos and is_valid_loc else None,
+                        _distance_km=self._calculate_geodistanse_in_km(self._node_config.real_position, (latitude, longitude)) if is_valid_pos and is_valid_loc else None,
                         mac_address=formatted_mac,
                         channelUtilization_airUtilTx_provides=ch_a_aut_provides,
                         favorite=user_data.get("isFavorite", False)

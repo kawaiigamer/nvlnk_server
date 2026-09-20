@@ -39,7 +39,6 @@ class FixedTypedConcurrentDequeue(Generic[_T]):
     @property
     def name(self) -> str:
         return self._name
-
     @property
     def mutex(self) -> threading.Lock:
         return self._mutex
@@ -75,10 +74,7 @@ class FixedTypedConcurrentDequeue(Generic[_T]):
         return items
 
     @with_mutex("mutex")
-    def recreate(self):
-        if count := len(self._deque):
-            self._loger.warning(f"Dropping {count} items from queue: {self.name}")
+    def drop(self):
+        if len(self._deque) > 0:
+            self._loger.notify(f"Dropping {len(self._deque)} items from queue: {self.name}")
             self._deque = self._create_internal_deque(self._deque.maxlen)
-        else:
-            self._loger.warning(f"Internal queue: {self.name} is empty, no items to drop")
-            return
