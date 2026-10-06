@@ -72,20 +72,24 @@ ___
 ## TODO, Features, Bugs, Changelog, etc
 ___
 ### WIP
-- 🈵Dynamic FSK & Smooth generation(decryption already supported).
-- 🆕 Create core module that handle for threads.
-- 🆕 Split `MeshtasticKnownNode` per static and dynamic parts.
-- 🆕 Create endpoints for _tox_ and _meshtastic_.
-
+- 🈵 Dynamic FSK & Smooth generation(decryption already supported).
+- 🆕! Split `MeshtasticKnownNode` per static and dynamic parts.
+- 🆕! Create endpoints for _tox_ and _meshtastic_.
+- 🆕 Rework `StreamsStorage`.
+- 🆕 Sending commands to threads.
+- 🆕 Global chash for handlers.
+- 🆕 Rework audio streaming service.
+- 
 ### Features
 - ✅ ~~Adding central logging system.~~
-- ✅ ~~Working with _different_ mesh nodes~~.
-- ✅ ~~`/wav/text/aes256_N-FSK/decrypter`~~.
+- ✅ ~~Working with _different_ mesh nodes.~~
+- ✅ ~~`/wav/text/aes256_N-FSK/decrypter`.~~
 - ✅ ~~Smoothing symbols values.~~
 - ✅ ~~Dynamic smoothing symbols values.~~
 - ✅ ~~Add dynamic FSK and dynamic smoothing to crypter form.~~
 - ✅ ~~Decryptor file size limit.~~
-- ✅ ~~Adding float as symbols.~~
+- ✅ ~~Add float as symbols.~~
+- ✅ ~~Create core module that handle for threads.~~
 - 🆙 _Different_ data for _different_ audio channels.
 - 🆙 Detecting symbols by _intervals_, but not by single values while decryption.
 - 🆙 _Negative_ smoothing symbols values.

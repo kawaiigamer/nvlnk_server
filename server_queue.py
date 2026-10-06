@@ -18,7 +18,7 @@ class InternalQueuedItem:
     timestamp: datetime = field(default_factory=datetime.now)
 
     def to_json(self, logger: EndpointLogger) -> Dict:
-        return {"datetime": self.timestamp.strftime(logger.detetime_fmt), "content": self.content,
+        return {"datetime": logger.strftime(self.timestamp), "content": self.content,
                 "main_type": self.main_type, "sub_type": self.sub_type}
 
 
@@ -33,7 +33,7 @@ class FixedTypedConcurrentDequeue(Generic[_T]):
         self._mutex = threading.Lock()
 
     def _create_internal_deque(self, max_size: int) -> deque[_T]:
-        self._loger.info(f"Initialing new {self.name} {self.__class__.__name__} with max length: {max_size}")
+        self._loger.info(f"Initialing new {self.name} {self.__class__.__name__} with max size: {max_size}")
         return deque(maxlen=max_size)
 
     @property

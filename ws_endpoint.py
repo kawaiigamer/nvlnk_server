@@ -1,17 +1,19 @@
 import argparse
+import os
+import threading
 import traceback
 import uuid
-from datetime import timedelta
 from enum import Enum
 
 from functools import wraps
-from typing import Dict, Union, List, Optional
+from typing import Dict, Union, List, Optional, Any, Callable
 
 from flask import Flask, request, Response, render_template, session
 
-from server_core import EndpointPrivateHandlerObject, ServerCore
-from server_description import get_wav_params, get_aes_params, get_wav_fsk_params, get_system_info
-
+from server_core import EndpointPrivateHandlerObject, ServerCore, ServerCoreException
+from server_description import global_get_wav_params, global_get_aes_params, global_get_wav_fsk_params, global_get_system_info
+from server_logging import EndpointLogger
+from server_meshtastic import MeshtasticWireHandleThread
 from server_streaming import AsyncAudioStream, AsyncAudioStreamBase, WavAudio, WavAudioNFSK, AESCrypterBase
 
 
@@ -29,10 +31,42 @@ class HTTPCodes(Enum):
 
 
 # -- Globals
-core: ServerCore = None
-handler: EndpointPrivateHandlerObject = None
+
 app = Flask(__name__)
 app.secret_key = uuid.uuid4().hex
+_COMPLEX_CACHE = {}
+_CACHE_LOCK = threading.Lock()
+
+
+def _init_global_cache_at_boot():
+    #print(f"init_global_cache_at_boot called, app.debug", app.debug, 'app.config.get("ENV")', app.config.get("ENV"), 'os.environ.get("WERKZEUG_RUN_MAIN")', os.environ.get("WERKZEUG_RUN_MAIN"))
+    if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+        return
+    global _COMPLEX_CACHE
+    _COMPLEX_CACHE["core"] = ServerCore()
+    _COMPLEX_CACHE["core"].start_core_threads()
+
+
+def _get_core() -> Optional[ServerCore]:
+    global _COMPLEX_CACHE, _CACHE_LOCK
+    if len(_COMPLEX_CACHE) == 0:
+        return None
+    with _CACHE_LOCK:
+        return _COMPLEX_CACHE.get("core")
+
+
+def _get_core_handler() -> Optional[EndpointPrivateHandlerObject]:
+    if core := _get_core():
+        return core.get_handler()
+    else:
+        raise ServerCoreException("Core not initiated!")
+
+
+def _get_core_logger() -> Optional[EndpointLogger]:
+    if core := _get_core():
+        return core.logger
+    else:
+        raise ServerCoreException("Core not initiated!")
 
 
 def internal_server_error_throwable(f):
@@ -40,9 +74,9 @@ def internal_server_error_throwable(f):
     def decorated_function(*args, **kwargs):
         try:
             return f(*args, **kwargs)
-        except ValueError as ve:
-            handler.logger.exception("ValueError exception")
-            tb = ve.__traceback__
+        except (ValueError, ServerCoreException) as exp:
+            _get_core_handler().logger.exception(f"{type(exp)} exception: {exp}")
+            tb = exp.__traceback__
             _, line_num, func_name, _ = traceback.extract_tb(tb)[-1]
             while tb.tb_next:
                 tb = tb.tb_next
@@ -50,7 +84,7 @@ def internal_server_error_throwable(f):
                 class_name = instance.__class__.__name__
             else:
                 class_name = tb.tb_frame.f_locals.get('cls').__name__
-            return {"error": f"Internal Server Error! [{class_name}::{line_num}:{func_name}] {str(ve)}"}, HTTPCodes.INTERNAL_SERVER_ERROR.value
+            return {"error": f"Internal Server Error! [{class_name}::{line_num}:{func_name}] {str(exp)}"}, HTTPCodes.INTERNAL_SERVER_ERROR.value
     return decorated_function
 
 
@@ -70,7 +104,9 @@ def authentication_required(f):
 def internal_stream_session_handler(f):
     @wraps(f)
     def decorated_stream_function(*args, **kwargs):
-        handler.logger.debug(f"request.range {request.range}, session.get('stream_uuid') = {session.get('stream_uuid')}") #TODO: request.range bytes=3528044-, session.get('stream_uuid') = None
+        handler = _get_core_handler()
+        handler.logger.debug(f"request.range {request.range}, session.get('stream_uuid') = {session.get('stream_uuid')}")
+        #TODO: request.range bytes=3528044-, session.get('stream_uuid') = None
         if session_uuid := session.get('stream_uuid'):
             if storaged_stream := handler.streams_storage.get_stream(session_uuid):
                 new_stream: AsyncAudioStream = f(stream=storaged_stream, *args, **kwargs)
@@ -99,9 +135,9 @@ def favicon():
 @authentication_required
 def main_page():
     runtime = {"runtime": {}}
-    if core:
+    if core := _get_core():
         runtime["runtime"]["working_instances"] = [wi.name for wi in core.get_working_instances()]
-    return Response(get_system_info(runtime), mimetype='application/json')
+    return Response(global_get_system_info(runtime), mimetype='application/json')
 
 # -------------------- wav --------------------
 
@@ -113,7 +149,7 @@ def main_page():
 def wav_random_stream(stream: Union[AsyncAudioStream, AsyncAudioStreamBase]) -> AsyncAudioStream:
     if isinstance(stream, AsyncAudioStream):
         return stream
-    return AsyncAudioStream.from_base(stream, wav=WavAudio(**get_wav_params(request.args)))
+    return AsyncAudioStream.from_base(stream, wav=WavAudio(**global_get_wav_params(request.args)))
 
 
 @app.route('/wav/random/N-FSK/stream')
@@ -123,7 +159,8 @@ def wav_random_stream(stream: Union[AsyncAudioStream, AsyncAudioStreamBase]) -> 
 def wav_random_nfsk_stream(stream: Union[AsyncAudioStream, AsyncAudioStreamBase]) -> AsyncAudioStream:
     if isinstance(stream, AsyncAudioStream):
         return stream
-    return AsyncAudioStream.from_base(stream, wav=WavAudioNFSK(**get_wav_fsk_params(request.args), logger=handler.logger), logger=handler.logger)
+    core_logger = _get_core_logger()
+    return AsyncAudioStream.from_base(stream, wav=WavAudioNFSK(**global_get_wav_fsk_params(request.args), logger=core_logger), logger=core_logger)
 
 
 @app.route('/wav/random/aes256/stream')
@@ -133,13 +170,16 @@ def wav_random_nfsk_stream(stream: Union[AsyncAudioStream, AsyncAudioStreamBase]
 def wav_random_aes256_stream(stream: Union[AsyncAudioStream, AsyncAudioStreamBase]) -> AsyncAudioStream:
     if isinstance(stream, AsyncAudioStream):
         return stream
-    return AsyncAudioStream.from_base(stream, wav=WavAudioNFSK(**get_wav_fsk_params(request.args), logger=handler.logger, crypter=AESCrypterBase.from_config(get_aes_params(request.args))), logger=handler.logger)
+    core_logger = _get_core_logger()
+    return AsyncAudioStream.from_base(stream, wav=WavAudioNFSK(**global_get_wav_fsk_params(request.args), logger=core_logger, crypter=AESCrypterBase.from_config(global_get_aes_params(request.args))), logger=core_logger)
+
 
 @app.route('/wav/random/aes256_N-FSK/stream')
 @internal_server_error_throwable
 @authentication_required
 def wav_random_aes256_nfsk_stream():
-    return AsyncAudioStream(wav=WavAudioNFSK(**get_wav_fsk_params(request.args), logger=handler.logger), logger=handler.logger, crypter=AESCrypterBase.from_config(get_aes_params(request.args))).start()
+    core_logger = _get_core_logger()
+    return AsyncAudioStream(wav=WavAudioNFSK(**global_get_wav_fsk_params(request.args), logger=core_logger), logger=core_logger, crypter=AESCrypterBase.from_config(global_get_aes_params(request.args))).start()
 
 
 app.config['LAST_PLAIN_TEXT_STR'] = ''
@@ -147,7 +187,7 @@ app.config['LAST_PLAIN_TEXT_STR'] = ''
 @internal_server_error_throwable
 @authentication_required
 def wav_text_aes256_nfsk_crypter():
-    aes_params = get_aes_params(request.args)
+    aes_params = global_get_aes_params(request.args)
     if request.method == 'POST':
         aes_params["text"] = request.form.get('text', aes_params.get("text"))
         app.config['LAST_PLAIN_TEXT_STR'] = aes_params["text"]
@@ -155,7 +195,8 @@ def wav_text_aes256_nfsk_crypter():
         if app.config['LAST_PLAIN_TEXT_STR']:
             aes_params["text"] = app.config['LAST_PLAIN_TEXT_STR']
             app.config['LAST_PLAIN_TEXT_STR'] = ''
-    return AsyncAudioStream(wav=WavAudioNFSK(**get_wav_fsk_params(request.args), logger=handler.logger), crypter=AESCrypterBase.from_config(aes_params), logger=handler.logger).start()
+    core_logger = _get_core_logger()
+    return AsyncAudioStream(wav=WavAudioNFSK(**global_get_wav_fsk_params(request.args), logger=handler.logger), crypter=AESCrypterBase.from_config(aes_params), logger=handler.logger).start()
 
 
 @app.route('/wav/text/aes256_N-FSK/crypter/form', methods=['GET'])
@@ -170,7 +211,8 @@ def wav_text_aes256_nfsk_crypter_form():
 def wav_text_aes256_nfsk_decrypter():
     if request.method == 'GET':
         return render_template('input_wav_file.html')
-    return AsyncAudioStream(wav=WavAudioNFSK(**get_wav_fsk_params(request.args), logger=handler.logger), crypter=AESCrypterBase.from_config(get_aes_params(request.args)), logger=handler.logger).wav_aes_nfsk_decrypt(request.data), 200
+    core_logger = _get_core_logger()
+    return AsyncAudioStream(wav=WavAudioNFSK(**global_get_wav_fsk_params(request.args), logger=core_logger), crypter=AESCrypterBase.from_config(global_get_aes_params(request.args)), logger=core_logger).wav_aes_nfsk_decrypt(request.data), 200
 
 # -------------------- wav ---------------------------
 # -------------------- tox ---------------------------
@@ -179,6 +221,7 @@ def wav_text_aes256_nfsk_decrypter():
 @internal_server_error_throwable
 @authentication_required
 def tox_send_message_endpoint():
+    handler = _get_core_handler()
     if not handler.tox_instance or not handler.tox_instance.is_running:
         return "Tox service is not acceptable", HTTPCodes.SERVICE_UNAVAILABLE.value
     text = request.args.get("text")
@@ -196,10 +239,11 @@ def tox_send_message_endpoint():
 @internal_server_error_throwable
 @authentication_required
 def tox_get_messages_endpoint():
+    handler = _get_core_handler()
     if not handler.tox_instance or not handler.tox_instance.is_running:
         return "Tox client is not running", HTTPCodes.SERVICE_UNAVAILABLE.value
     try:
-        count: int = int(request.args.get("count", handler.private_data.tox_config.input_queue_max_size))
+        count: int = int(request.args.get("count", handler.private_data.tox_config.instance_config.input_queue_max_size))
     except ValueError:
         return f"Count param is invalid: {request.args.get("count")}", HTTPCodes.NOT_ACCEPTABLE.value
     return Response([item.to_json() for item in handler.tox_instance.output_queue.get_batch(count)], mimetype='application/json')
@@ -207,27 +251,58 @@ def tox_get_messages_endpoint():
 # -------------------- tox ---------------------------
 # -------------------- meshtastic --------------------
 
+
+def get_instance_by_id(service: str):
+    def factory(f: Callable) -> Callable:
+        @wraps(f)
+        def instance_valudator(*args, **kwargs):
+            handler = _get_core_handler()
+            if not handler:
+                return "Instances structure is not initialized yet", HTTPCodes.SERVICE_UNAVAILABLE.value
+            match service:
+                case "meshtastic":
+                    instances = handler.meshtastic_instances
+                case "meshcore":
+                    instances = handler.meshcore_instances
+                case _:
+                    return "Instances structure is not exists", HTTPCodes.SERVICE_UNAVAILABLE.value
+            if len(instances) < 1:
+                return "Instances structure is empty", HTTPCodes.NOT_FOUND.value
+            if len(instances) == 1:
+                instance = list(instances.values())[0]
+                handler.logger.debug(f"Found only one node: {instance.name}")
+            else:
+                instance_id = f"{service}_{request.args.get('ID')}"
+                instance = instances.get(instance_id)
+
+            if not instance.is_running:
+                return f"Instance with ID {instance.name} is not running", HTTPCodes.SERVICE_UNAVAILABLE.value
+            return f(instance, *args, **kwargs)
+        return instance_valudator
+    return factory
+
 @app.route('/meshtastic/get_nodes', methods=['GET'])
 @authentication_required
-def meshtastic_get_nodes_endpoint():
-    available_nodes_count: int = len(handler.private_data.meshtastic_nodes)
-    current_node = request.args.get("ID")
-    if available_nodes_count > 1 and not current_node:
-        return "Node ID is not set", HTTPCodes.CONFLICT.value
-    if node := handler.meshtastic_instances.get(current_node):
-        result = node.get_all_known_nodes_via_usb()
+@get_instance_by_id("meshtastic")
+def meshtastic_get_nodes_endpoint(instance: MeshtasticWireHandleThread):
+    # available_nodes_count: int = len(handler.private_data.meshtastic_nodes)
+    # current_node = request.args.get("ID")
+    # if available_nodes_count > 1 and not current_node:
+    #     return "Node ID is not set", HTTPCodes.CONFLICT.value
+     #if node := handler.meshtastic_instances.get(current_node):
+        result = instance.get_all_known_nodes()
         if request.args.get("save") == "true":
-            node.save_dumped_nodes(result)
-        response: str = node._json_format_dumped_nodes(result)
-        handler.logger.dump(f"Nodes summary:\n{response}")
+            instance.save_dumped_nodes(result)
+        response: str = instance._json_format_dumped_nodes(result)
+        _get_core_handler().logger.dump(f"Nodes summary:\n{response}")
         return Response(response, mimetype='application/json')
-    return f"Node with ID {current_node} not found!", HTTPCodes.NOT_FOUND.value
 
 
 @app.route('/meshtastic/send_message', methods=['GET'])
 @authentication_required
 def meshtastic_send_message_endpoint():
     MAX_TEXT_LENGTH = 160
+    handler = _get_core_handler()
     current_node = request.args.get("ID")
     if node := handler.meshtastic_instances.get(current_node):
         if not node.is_running:
@@ -252,6 +327,7 @@ def meshtastic_send_message_endpoint():
 @internal_server_error_throwable
 @authentication_required
 def meshtastic_get_messages_endpoint():
+    handler = _get_core_handler()
     current_node = request.args.get("ID")
     if node := handler.meshtastic_instances.get(current_node):
         if not node.is_running:
@@ -270,22 +346,16 @@ def meshtastic_get_messages_endpoint():
 
 
 def main() -> None:
-    # -- Init globals
-    core = ServerCore()
-    handler = core.handler
     # -- Parse args
     parser = argparse.ArgumentParser(description="ws-http-endpoint")
     parser.add_argument('-k', '--key', type=str, default="", help='Key for decrypting private data (AES-256 CBC)')
     parser.add_argument('-p', '--port', type=int, default=60600, help='port(default=%(default)s)')
     parser.add_argument("-d", "--debug", default=True, help="enable debug mode(default=%(default)s)")
     args = parser.parse_args()
-    # -- Starting endpoint
-    core.logger.system(f"Endpoint version: {core.private_data.version.__str__()}, release type: {core.private_data.release_type} started!")
-    core.start_core_threads()
 
-    app.permanent_session_lifetime = timedelta(seconds=core.private_data.http_session_lifetime)
-    app.run(host='0.0.0.0', port=args.port, debug=args.debug, use_reloader=True)
+    _init_global_cache_at_boot()
+    app.run(host='0.0.0.0', port=args.port, debug=True, use_reloader=True)
 
 
 if __name__ == '__main__':
-    main()
+        main()

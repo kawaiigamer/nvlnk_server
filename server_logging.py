@@ -3,67 +3,89 @@ import os
 import sys
 from datetime import datetime
 from functools import wraps
-from typing import Callable, Union, Generator, Optional, Tuple, Dict, TypeVar
+from typing import Callable, Union, Generator, Optional, Tuple
+from zoneinfo import ZoneInfo
+
 from frozendict import frozendict
 
 import numpy as np
 
 from server_private import EndpointPrivateConfig
+from server_structs import BiFrozenDict
 
-_MODULE_CONSTS = frozendict(RUNTIME_LOGS_PATH = "./runtime_logs")
+_MODULE_CONSTS = frozendict(RUNTIME_LOGS_PATH="./runtime_logs",
+                            safe_symbols_table=frozendict({"/": ".", ":": "-", "\\": ".", "*": "'", "|": "--"}))
 
 
 class EndpointLogger:
-    def debug(self, msg: str): raise NotImplemented()
+    def debug(self, msg: str): raise NotImplementedError()
     def test(self, msg: str): pass
     def note(self, msg: str): pass
     def external(self, msg: str): pass
     def notify(self, msg: str): pass
-    def info(self, msg: str): raise NotImplemented()
+    def info(self, msg: str): raise NotImplementedError()
     def dump(self, msg: Union[str, bytes, np.ndarray], max_length: int = -1): pass
     def core(self, msg: str): pass
     def system(self, msg: str): pass
-    def warning(self, msg: str): raise NotImplemented()
+    def warning(self, msg: str): raise NotImplementedError()
     def attention(self, msg: str, trace: bool = False): pass
-    def exception(self, msg: str, trace: bool = False): raise NotImplemented()
-    def error(self, msg: str, trace: bool = True): raise NotImplemented()
-    def critical(self, msg: str): raise NotImplemented()
+    def exception(self, msg: str, trace: bool = False): raise NotImplementedError()
+    def error(self, msg: str, trace: bool = True): raise NotImplementedError()
+    def critical(self, msg: str): raise NotImplementedError()
     def panic(self, msg: str, trace: bool = True): pass
-    def fatal(self, msg: str, trace: bool = True): raise NotImplemented()
-    def format_timestamp_now(self, safe_format: bool = False) -> str: raise NotImplemented()
+    def fatal(self, msg: str, trace: bool = True): raise NotImplementedError()
     @property
-    def detetime_fmt(self) -> str: raise NotImplemented()
+    def detetime_fmt(self) -> str: raise NotImplementedError()
+    @property
+    def detetime_timezone(self) -> str: raise NotImplementedError()
+    @classmethod
+    def now_with_timezone(cls, timezone: str) -> datetime: raise NotImplementedError()
+    def now(self) -> datetime: raise NotImplementedError()
+    def strftime(self, dt: datetime) -> str: raise NotImplementedError()
+    def strftime_now(self, safe_format: bool = False) -> str: raise NotImplementedError()
 
     @classmethod
-    def cut_sequence(cls, sequence: Union[str, bytes, np.ndarray], stay_len: int = 8, stay_at_end: bool = True) -> str:
-        raise NotImplemented()
-
-    @classmethod
-    def make_length_prefix(cls, data: Union[str, bytes]) -> str: raise NotImplemented()
+    def cut_sequence(cls, sequence: Union[str, bytes, np.ndarray], stay_len: int = 8, stay_at_end: bool = True, length_prefix: bool = False) -> str:
+        raise NotImplementedError()
 
 
 class MiddlewareLogger(EndpointLogger):
-    def __init__(self, detetime_fmt: str):
-        self._detetime_fmt = detetime_fmt
+    def __init__(self, private_config: EndpointPrivateConfig):
+        self._detetime_fmt = private_config.detetime_fmt
+        self._datetime_timezone = private_config.timezone
 
     @property
     def detetime_fmt(self) -> str:
         return self._detetime_fmt
 
-    def format_timestamp_now(self, safe_format: bool = False) -> str:
-        formated_str = datetime.now().strftime(self.detetime_fmt)
-        return formated_str.replace(" ", "_").replace(":", "-") if safe_format else formated_str
+    @property
+    def detetime_timezone(self) -> str:
+        return self._datetime_timezone
 
     @classmethod
-    def cut_sequence(cls, sequence: Union[str, bytes, np.ndarray], stay_len: int = 8, stay_at_end: bool = True) -> str:
+    def now_with_timezone(cls, timezone: str = "UTC") -> datetime:
+        return datetime.now(ZoneInfo(timezone))
+
+    def now(self) -> datetime:
+        return self.now_with_timezone(self.detetime_timezone)
+
+    def strftime(self, dt: datetime) -> str:
+        return dt.strftime(self.detetime_fmt)
+
+    def strftime_now(self, safe_format: bool = False) -> str:
+        result = self.strftime(self.now())
+        if safe_format:
+            for s, r in _MODULE_CONSTS["safe_symbols_table"].items():
+                result = result.replace(s, r)
+            return result
+
+    @classmethod
+    def cut_sequence(cls, sequence: Union[str, bytes, np.ndarray], stay_len: int = 8, stay_at_end: bool = True, length_prefix: bool = False) -> str:
+        prefix: str = f"[{f'[Length={len(sequence)}]'}" if length_prefix else ""
         if len(sequence) < stay_len * 2:
-            return f"{sequence}"
+            return f"{prefix}{sequence}"
         else:
-            return f"{sequence[0:stay_len]}...{sequence[len(sequence) - stay_len:] if stay_at_end else ""}"
-
-    @classmethod
-    def make_length_prefix(cls, data: Union[str, bytes]) -> str:
-        return f"[{f'[Length={len(data)}]'}"
+            return f"{prefix}{sequence[0:stay_len]}...{sequence[len(sequence) - stay_len:] if stay_at_end else ""}"
 
 
 def check_io(f):
@@ -80,7 +102,7 @@ class SimpleDebugOnlyLogger:
         self.id = id
         self.io = io
 
-    def _message_out(self, message) -> None:
+    def _message_out(self, message: str) -> None:
         self.io(f"[{self.id}] {message}")
 
     @check_io
@@ -104,15 +126,14 @@ class SimpleDebugOnlyLogger:
             yield False
         while True:
             received_descr, received_result = yield
-            self.msg_frame_no(frame_no, f"{received_descr}: {MiddlewareLogger.make_length_prefix(received_result)} {MiddlewareLogger.cut_sequence(received_result, 92)}")
+            self.msg_frame_no(frame_no, f"{received_descr}: {MiddlewareLogger.cut_sequence(received_result, length_prefix=True)} {MiddlewareLogger.cut_sequence(received_result, 92, length_prefix=True)}")
 
 
 class DefaultLogger(MiddlewareLogger):
     def __init__(self, private_config: EndpointPrivateConfig):
-        super().__init__(private_config.detetime_fmt)
+        super().__init__(private_config)
         os.makedirs(_MODULE_CONSTS["RUNTIME_LOGS_PATH"], exist_ok=True)
-        log_filename = datetime.now().strftime(private_config.detetime_fmt).replace(":", "-")
-        logger_file_path = f"{_MODULE_CONSTS["RUNTIME_LOGS_PATH"]}/{private_config.logger_name}_{log_filename}.log"
+        logger_file_path = f"{_MODULE_CONSTS["RUNTIME_LOGS_PATH"]}/{private_config.logger_name}_{self.strftime_now(safe_format=True)}.log"
         logging.basicConfig(
             level=logging.DEBUG,
             datefmt=private_config.detetime_fmt,
@@ -135,27 +156,8 @@ class DefaultLogger(MiddlewareLogger):
     def warning(self, msg: str, trace: bool = True): self.logger.warning(msg)
     def fatal(self, msg: str, trace: bool = True): self.logger.fatal(msg)
 
-_T1 = TypeVar('T1')
-_T2 = TypeVar('T2')
-
-
-class BiFrozenDict[_T1, _T2]:
-    def __init__(self, d: Dict[_T1, _T2]):
-        self.key_to_val = frozendict(d)
-        self.val_to_key = frozendict({v: k for k, v in d.items()})
-
-    def get(self, key): return self.key_to_val.get(key)
-    def vget(self, val): return self.val_to_key.get(val)
-    def items(self): return self.key_to_val.items()
-    def vitems(self): return self.val_to_key.items()
-    def keys(self): return self.key_to_val.keys()
-    def vkeys(self): return self.val_to_key.keys()
-    def values(self): return self.key_to_val.values()
-    def vvalues(self): return self.val_to_key.values()
-
 
 class ColoredStreamHandler(logging.StreamHandler):
-
     _ANSI_COLORS = frozendict({
         "black": "\x1b[1;90;107m",
         "bold_black": "\x1b[1;30;49m",
@@ -183,7 +185,7 @@ class ColoredStreamHandler(logging.StreamHandler):
         'debug': "bold_black",
         'test': "yellow",
         'note': "cyan",
-
+        # --
         'external': "orange",
         'notify': "dark_cyan",
         'info': "green",
@@ -192,7 +194,7 @@ class ColoredStreamHandler(logging.StreamHandler):
         'system': "blue",
         'warning': "magenta",
         'attention': "red",
-
+        # --
         'exception': "background_yellow",
         'error': "background_red",
         'critical': "background_blue",
@@ -207,7 +209,7 @@ class ColoredStreamHandler(logging.StreamHandler):
 
     def format(self, record):
         original_msg = super().format(record)
-        log_level_name = self._levels.vget(record.levelno.real)
+        log_level_name = self._levels.v_get(record.levelno.real)
         log_level_colour_name = self._ANSI_COLORED_LEVELS.get(log_level_name)
         log_level_colour_code = self._ANSI_COLORS.get(log_level_colour_name)
         return f"{log_level_colour_code}{original_msg}{self._RESET}"
@@ -218,7 +220,7 @@ class ExtendedLevelsLogger(MiddlewareLogger):
         'debug': 10,
         'test': 15,
         'note': 20,
-
+        # --
         'external': 25,
         'notify': 30,
         'info': 35,
@@ -227,22 +229,21 @@ class ExtendedLevelsLogger(MiddlewareLogger):
         'system': 50,
         'warning': 55,
         'attention': 60,
-
+        # --
         'exception': 65,
         'error': 70,
-        'critical': 750,
+        'critical': 75,
         'panic': 80,
         'fatal': 85
     })
 
     def __init__(self, private_config: EndpointPrivateConfig):
-        super().__init__(private_config.detetime_fmt)
+        super().__init__(private_config)
         for name, value in self._LEVELS.items():
             logging.addLevelName(value, name.upper())
 
         os.makedirs(_MODULE_CONSTS["RUNTIME_LOGS_PATH"], exist_ok=True)
-        log_filename = datetime.now().strftime(private_config.detetime_fmt).replace(":", "-")
-        logger_file_path = f"{_MODULE_CONSTS["RUNTIME_LOGS_PATH"]}/{private_config.logger_name}_{log_filename}.log"
+        logger_file_path = f"{_MODULE_CONSTS["RUNTIME_LOGS_PATH"]}/{private_config.logger_name}_{self.strftime_now(safe_format=True)}.log"
 
         self.logger = logging.getLogger(private_config.logger_name)
         self.logger.setLevel(1)

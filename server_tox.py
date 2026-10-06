@@ -1,3 +1,6 @@
+import os
+import ctypes
+import time
 import threading
 from dataclasses import dataclass
 from typing import Tuple, Optional, List
@@ -9,24 +12,19 @@ from frozendict import frozendict
 from server_logging import EndpointLogger
 from server_private import ToxClientConfig
 from server_queue import InternalQueuedItem
-
-import os
-import ctypes
-import time
-
 from server_storage import with_mutex
-from server_threading import IOQueuedThread
+from server_threading import IOQueuedThread, ThreadState
 
 
-class ToxInterlocutorNotOnlineException(BaseException):
+class ToxInterlocutorNotOnlineException(Exception):
     pass
 
 
-class ToxIOException(BaseException):
+class ToxIOException(Exception):
     pass
 
 
-class ToxCCoreException(BaseException):
+class ToxCCoreException(Exception):
     pass
 
 
@@ -282,18 +280,16 @@ class ToxClientThread(IOQueuedThread):
                 sub_type=sub_type
         ))
 
-    @with_mutex("mutex")
     def run(self) -> None:
-        self._logger.debug("Starting tox client thread")
-
-        self._logger.debug(f"Connecting to a DHT node IP: {self._config.bootstrap_ip}, port {self._config.bootstrap_port}, public key: {self._config.bootstrap_key}")
-        bootstrap_success = self._tox_lib.tox_bootstrap(self._tox_instance, self._config.bootstrap_ip.encode('utf-8'), self._config.bootstrap_port, bytes.fromhex(self._config.bootstrap_key), None)
-        if not bootstrap_success:
-            self._logger.critical("Bootstrap failed...")
-            return
-        self._running = True
-        self._logger.info("Tox client thread is running!")
-
+        self._logger.debug("Bootstrapping client thread...")
+        with self._mutex:
+            super().run()
+            self._logger.debug(f"Connecting to a DHT node IP: {self._config.bootstrap_ip}, port {self._config.bootstrap_port}, public key: {self._config.bootstrap_key}")
+            bootstrap_success = self._tox_lib.tox_bootstrap(self._tox_instance, self._config.bootstrap_ip.encode('utf-8'), self._config.bootstrap_port, bytes.fromhex(self._config.bootstrap_key), None)
+            if not bootstrap_success:
+                self._logger.critical("Bootstrap failed...")
+                self._state = ThreadState.ERROR_DOWN
+                return
         if self._config.instance_config.interval is None:
             sleep_interval = self._tox_lib.tox_iteration_interval(self._tox_instance) / 1000.0
         else:
@@ -311,11 +307,10 @@ class ToxClientThread(IOQueuedThread):
                 self._logger.error("Tox network connection lost")
                 connected_flag = False
             items = self._input_queue.get_batch(max_count=12)
-            if not items:
-                break
-            for cmd_type, data in items:
-                self._handle_command(cmd_type, data)
-                time.sleep(sleep_interval)
+            if items:
+                for cmd_type, data in items:
+                    self._handle_command(cmd_type, data)
+            time.sleep(sleep_interval)
 
     @with_mutex("mutex")
     def get_friend_list(self) -> List[ToxInterlocutor]:
@@ -346,10 +341,9 @@ class ToxClientThread(IOQueuedThread):
                     friend_number,
                     ctypes.byref(status_err)
                 )
-                #friend_number = str(friend_number)
                 pk_hex = pk_buffer.raw.hex().upper()
                 connection_status_str = _MODULE_CONSTS["CONNECTION_STATUSES"].get(connection_status, "Unknown")
-                friends.append(ToxInterlocutor(pk_hex, connection_status_str, self._logger.format_timestamp_now()))
+                friends.append(ToxInterlocutor(pk_hex, connection_status_str, self._logger.strftime_now()))
             else:
                 self._logger.error(f"Failed to get public key for friend #{friend_number}. Error: {err.value}")
                 return []
@@ -424,18 +418,8 @@ class ToxClientThread(IOQueuedThread):
 
     @with_mutex("mutex")
     @with_mutex("io_mutex")
-    def clear(self):
-        self.finalize()
-
-    def renew(self, timeout: float = 30.0, uname: str = None, config: ToxClientConfig = None) -> bool:
-        if super().renew(timeout):
-            self._public_key = None
-            if uname:
-                self._logger.info(f"Thread: {self.name} is changing name to: {uname}")
-                self._uname = uname
-            if config:
-                self._logger.info(f"Thread: {self.name} is changing tox config!")
-                self._config = config
+    def finalize(self):
+        super().finalize()
 
     def send_message_safely(self, friend_number: int, message: str):
         self._logger.debug("send_msg command received")

@@ -3,13 +3,13 @@ import datetime
 import json
 import math
 import random
-from datetime import datetime, timedelta
 import struct
 import io
 import wave
+
 from itertools import count
 from typing import Optional, Generator, AsyncGenerator, Union, List, Type, Any, Dict
-
+from datetime import datetime, timedelta
 from enum import Enum
 import numpy as np
 from flask import Response, stream_with_context
@@ -32,14 +32,14 @@ class AsyncAudioStreamStatus(Enum):
 class AsyncAudioStreamBase:
     def __init__(self, logger: EndpointLogger, stream_uuid: str = "", **kwargs):
         self.stream_uuid: str = stream_uuid
-        self.created_at: datetime = datetime.now()
-        self.logger = logger
+        self.created_at: datetime = logger.now()
+        self._logger = logger
 
     def to_json(self) -> Dict[str, Any]:
         return {"stream_uuid": self.stream_uuid, "created_at": self.created_at}
 
     def is_deprecated(self, secs: timedelta) -> bool:
-        return (datetime.now() - self.created_at) > secs
+        return (self._logger.now() - self.created_at) > secs
 
 
 class AsyncAudioStream(AsyncAudioStreamBase):
@@ -50,14 +50,14 @@ class AsyncAudioStream(AsyncAudioStreamBase):
         self.frames_delay = 1
         self.crypter = crypter
         self.expected_frames_count = 0
-        self.io_logger = SimpleDebugOnlyLogger(self.stream_uuid, io=self.logger.debug if debug else None)
+        self.io_logger: SimpleDebugOnlyLogger = SimpleDebugOnlyLogger(self.stream_uuid, io=self._logger.debug if debug else None)
         self.frame_body_length_without_aes_payload = self.wav.frame_length
         self.supports_infinite_continue: bool = supports_infinite_continue
         self.generators_inited_at: datetime = datetime.min
         self.status: AsyncAudioStreamStatus = AsyncAudioStreamStatus.BASE_INITIALIZED
 
     def is_deprecated(self, secs: timedelta) -> bool:
-        return (datetime.now() - self.generators_inited_at) > secs and self.status.value >= AsyncAudioStreamStatus.PAUSED_ONCE.value  #and inspect.getgeneratorstate(self.sample_gen) == "GEN_CLOSED" if self.sample_gen else False
+        return (self._logger.now() - self.generators_inited_at) > secs and self.status.value >= AsyncAudioStreamStatus.PAUSED_ONCE.value  #and inspect.getgeneratorstate(self.sample_gen) == "GEN_CLOSED" if self.sample_gen else False
 
     @staticmethod
     def from_base(base: AsyncAudioStreamBase, **kwargs):
@@ -82,7 +82,7 @@ class AsyncAudioStream(AsyncAudioStreamBase):
             else:
                 self.sample_gen = self._random_frames_gen()
         self.io_logger.msg_lazy(lambda: f"Stream generators inited with config: {self.to_json()}")
-        self.generators_inited_at: datetime = datetime.now()
+        self.generators_inited_at: datetime = self._logger.now()
         self.status = AsyncAudioStreamStatus.GENERATORS_INITIALIZED
 
     def _log_frame(self, frame_no: int, bits: np.ndarray, fsk_frame: np.ndarray, include_sync_symbols: bool = True) -> None:
@@ -119,12 +119,12 @@ class AsyncAudioStream(AsyncAudioStreamBase):
                 yield padded_array
 
     def _text_aes_crypted_fsk_frames_gen(self) -> Generator[bytes, None, None]:   #TODO TEST
-        self.io_logger.msg_lazy(lambda: f"Received Plain Text: {self.io_logger.cut_seq_with_prefix(self.crypter.text, 32)}, Using {self.crypter.__class__.__name__},  Additional AES bytes count: {self.crypter.additional_payload_length}...")
+        self.io_logger.msg_lazy(lambda: f"Received Plain Text: {EndpointLogger.cut_sequence(self.crypter.text, 16)}, Using {self.crypter.__class__.__name__},  Additional AES bytes count: {self.crypter.additional_payload_length}...")
         encrypted_text_bytes: bytes = self.crypter.encrypt(self.crypter.text)
         encrypted_text_bits: np.ndarray = self.wav.bytes_to_bits_array(encrypted_text_bytes)
         bits_as_full_symbols_in_frame: int = self.wav.frame_full_symbols_count*self.wav.bits_in_value_symbol
         self.expected_frames_count = math.ceil(len(encrypted_text_bits) / self.wav.frame_full_symbols_count / self.wav.bits_in_value_symbol)
-        self.io_logger.msg_lazy(lambda: f"AES crypted bytes: {self.io_logger.cut_seq_with_prefix(encrypted_text_bytes)}, AES crypted bits: {encrypted_text_bits}, "
+        self.io_logger.msg_lazy(lambda: f"AES crypted bytes: {EndpointLogger.cut_sequence(encrypted_text_bytes, 16)}, AES crypted bits: {EndpointLogger.cut_sequence(encrypted_text_bits, 24)}, "
                         f"Bits in frame(as full symbols): {bits_as_full_symbols_in_frame}, Expected frames count: {self.expected_frames_count}")
         yield
         for i, padded_bits_per_frame in enumerate(self._padded_bits_gen(encrypted_text_bits, bits_as_full_symbols_in_frame), 1):

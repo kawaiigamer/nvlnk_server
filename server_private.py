@@ -1,7 +1,6 @@
 import json
 from dataclasses import dataclass, asdict
 from typing import Tuple, Union, Dict, List
-
 from frozendict import frozendict
 
 from server_cryptography import AESCrypterCBC
@@ -24,14 +23,15 @@ class MeshtasticInternalNodeData:
     mac: str | None = None
     mac_address_name: str | None = None
     real_position: Tuple[float, float] | None = None
-    instance_config: InstanceThreadConfig = None
+    instance_config: InstanceThreadConfig | None = None
+
     def __post_init__(self):
         if not self.instance_config:
             self.instance_config = InstanceThreadConfig(f"meshtastic_{self.short_name}")
 
 
 @dataclass(frozen=True)
-class ToxClientConfig():
+class ToxClientConfig:
     profile_file_name: str
     private_key: str
     bootstrap_ip: str
@@ -59,6 +59,7 @@ class EndpointPrivateConfig:
     http_session_lifetime: int
     aes265_key: str
     access_key: str
+    timezone: str
     detetime_fmt: str
     log_fmt: str
     logger_name: str
@@ -95,6 +96,7 @@ def load_private_data(secret_key: str) -> EndpointPrivateConfig:
 __EXAMPLE = EndpointPrivateConfig(version=EndpointVersion(0,0,31,1), release_type="DUBUG_ONLY", http_session_lifetime=10,
                                   aes265_key="BF9514A1BBFA307092C4971CBDE621BEE381BB00EF1B8841356A6428F5288B58",
                                   access_key="7E74516EFA4FD55DE3E7CD017DF7D364D2DF7B94122740476DFBFB5F10523D6F",
+                                  timezone="Asia/Tokyo",
                                   detetime_fmt="%d.%m.%y %H:%M:%S",
                                   log_fmt="[%(threadName)s] [%(levelname)s] [%(filename)s:%(lineno)d] %(asctime)s | %(message)s",
                                   logger_name="NVLNK",

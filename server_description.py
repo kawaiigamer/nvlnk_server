@@ -1,14 +1,15 @@
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from dataclasses import dataclass, field
 from typing import Union, List, Dict, Self, Optional, Any, Type, Tuple
 
 import numpy as np
 
+from server_logging import EndpointLogger, MiddlewareLogger
 from server_private import load_private_data, EndpointPrivateConfig
 
 __SECRET_KEY_256 = "898946929E5274DDE600CD7788B6C557377716197A59A6C5D9063A22C9E40741"
-__PRIVATE_DATA: EndpointPrivateConfig = load_private_data(__SECRET_KEY_256)
+_PRIVATE_DATA: EndpointPrivateConfig = load_private_data(__SECRET_KEY_256)
 
 
 @dataclass
@@ -84,24 +85,25 @@ class MainEndpointDescription(OrderedDataclass):
     started_at: datetime
     timezone: str
     tox_id: str
-    meshtatic_nodes_names: List [str]
+    meshtastic_nodes_names: List[str]
+    meshcore_nodes_names: List[str]
     services: Dict[str, Union[RoutePart, EndpointPart]]
 
     @property
     def running_time(self) -> str:
-        ts: int = int((datetime.now() - self.started_at).total_seconds())
+        ts: int = int((EndpointLogger.now_with_timezone(self.timezone) - self.started_at).total_seconds())
         hours, remainder = divmod(ts, 3600)
         minutes, seconds = divmod(remainder, 60)
         return f"{hours:02}:{minutes:02}:{seconds:02}"
 
     @property
     def started_time(self) -> str:
-        return self.started_at.strftime(__PRIVATE_DATA.detetime_fmt)
+        return self.started_at.strftime(_PRIVATE_DATA.detetime_fmt)
 
     def to_dict(self) -> Dict[str, Any]:
         return {"name": self.name, "status": self.status, "release_type": self.release_type, "started_at": self.started_time, "timezone": self.timezone,
                 "running_time": self.running_time, "tox_id": self.tox_id,
-                "meshtatic_nodes_names": self.meshtatic_nodes_names,
+                "meshtatic_nodes_names": self.meshtastic_nodes_names,
                 "services": {k: v.to_dict() for k, v in self.services.items()}}
 
 #  ------------------------------------- wav  params -------------------------------------
@@ -119,7 +121,7 @@ _wav_dynamic_nfsk_params_descr: List[Param] = [Param("dfsk", "dynamic_fsk", "fal
                                                Param("dsm_min", "dynamic_smoothing_min", 1.0, "Min level for dynamic FSK"), Param("dsm_max", "dynamic_smoothing_max", 3.0, "Max level for dynamic FSK"),
                                                ]
 _wav_nfsk_decrypt_errors_descr: List[Param] = [Param("errors", "errors_mode", "ignore", "'ignore' - ignores any error, 'break' - interrupts decrypt process, 'skip' - skipping error frame, continuing to next frame")]
-_aes_params_descr: List[Param] = [Param("key", "key_str", __PRIVATE_DATA.aes265_key, "256 bits key"), Param("mode", "mode", "CBC", "AES256 mode(GCM or CBC)"),
+_aes_params_descr: List[Param] = [Param("key", "key_str", _PRIVATE_DATA.aes265_key, "256 bits key"), Param("mode", "mode", "CBC", "AES256 mode(GCM or CBC)"),
                                   Param("iv", "iv_length", 16, "Initialization Vector (IV) length in bytes"), Param("tag", "tag", "notag", "Authentication Tag(only for GCM mode)")
                                   ]
 _aes_text_params_descr: List[Param] = [Param("text", "text", "", "Plain text for encryption")]
@@ -146,7 +148,7 @@ _fsk_presets: Dict[str, int] = {
 
 #  ------------------------------------- meshtastic  params ------------------------------
 _meshtastic_node_id_descr: List[Param] = [Param("ID", "short_name", "", "If multissage teple nodes are connected, you MUST specify a 4-character callsign for a specific node. If only one node is connected, no explicit indication is required.")]
-_meshtastic_get_node_descr: List[Param] = [Param("count", "count", 250, "Number of requested nodes"), Param("save", "save", "true", "Save the result to internal storage")]
+_meshtastic_get_any_count_descr: List[Param] = [Param("count", "count", 250, "Number of requested items"), Param("save", "save", "true", "Save the result to internal storage")]
 _meshtastic_send_message_descr: List[Param] = [Param("text", "text", "", "Sending text"), Param("ch", "channel_index", 0, "Channel index"), Param("to", "destinationIddestinationId", -1, "To send a message to a specific node, specify its ID")]
 #  ------------------------------------- meshtastic  params ------------------------------
 
@@ -186,14 +188,15 @@ _endpoints: Dict[str, Union[RoutePart, EndpointPart]] = {
 
                                 #  ------------------------------------- meshtastic -------------------------------------
                                 "meshtastic": RoutePart("Meshtastic introduction service", {
-                                    "get_nodes": EndpointPart("Returns current node list json or error", "GET", _meshtastic_node_id_descr + _meshtastic_get_node_descr),
-                                    "send_message": EndpointPart("Send message to any chat", "GET", _meshtastic_get_node_descr + _meshtastic_send_message_descr)}),
+                                    "get_nodes": EndpointPart("Returns current node list json or error", "GET", _meshtastic_node_id_descr + _meshtastic_get_any_count_descr),
+                                    "send_message": EndpointPart("Send message to any chat", "GET", _meshtastic_node_id_descr + _meshtastic_get_any_count_descr + _meshtastic_send_message_descr),
+                                    "get_messages": EndpointPart("Get outgoing messages from all chats", "GET", _meshtastic_node_id_descr + _meshtastic_get_any_count_descr)}),
                                 #  ------------------------------------- meshtastic -------------------------------------
 
                                 #  ------------------------------------- tox_library --------------------------------------------
                                 "tox": RoutePart("Tox introduction service", {
                                     "send_message": EndpointPart("Send message to any chat", "GET", _tox_send_message_descr),
-                                    "get_messages": EndpointPart("Geet messages from tox client", "GET", _queue_get_items_descr)
+                                    "get_messages": EndpointPart("Geet messages from any chat", "GET", _queue_get_items_descr)
                                             }),
                                 #  ------------------------------------- tox_library --------------------------------------------
 
@@ -202,29 +205,37 @@ _endpoints: Dict[str, Union[RoutePart, EndpointPart]] = {
                                 #  ------------------------------------- main queue -------------------------------------
 
 
-_main = MainEndpointDescription("yue-ws-main", "online", __PRIVATE_DATA.release_type, datetime.now(), "JST", __PRIVATE_DATA.tox_config.profile_file_name, [node_key for node_key in __PRIVATE_DATA.meshtastic_nodes.keys()], _endpoints)
+_main = MainEndpointDescription(name="yue-ws-main", status="online", release_type=_PRIVATE_DATA.release_type,
+                                started_at=MiddlewareLogger.now_with_timezone(_PRIVATE_DATA.timezone), timezone=_PRIVATE_DATA.timezone,
+                                tox_id=_PRIVATE_DATA.tox_config.profile_file_name,
+                                meshtastic_nodes_names=[node_key for node_key in _PRIVATE_DATA.meshtastic_nodes.keys()],
+                                meshcore_nodes_names=[],
+                                services=_endpoints)
 
 
 def __get_params_from_request(args, params_descr: List[Param]) -> Optional[Dict[str, Any]]:
     return {pd.fullname: args.get(pd.name, default=pd.default_value, type=type(pd.default_value)) for pd in params_descr}
 
 
-def get_wav_params(args) -> Optional[Dict[str, Any]]:
+def global_get_wav_params(args) -> Optional[Dict[str, Any]]:
     return __get_params_from_request(args, _wav_params_descr + _wav_duration_params_descr)
 
 
-def get_wav_fsk_params(args) -> Optional[Dict[str, Any]]:
+def global_get_wav_fsk_params(args) -> Optional[Dict[str, Any]]:
     if preset := _fsk_presets.get(args.get("preset")):
         return {**preset, **__get_params_from_request(args, _wav_duration_params_descr + _wav_additional_params_descr + _wav_nfsk_level_params_descr  + _wav_nfsk_decrypt_errors_descr + _wav_dynamic_nfsk_params_descr)}
     return __get_params_from_request(args, _wav_params_descr + _wav_additional_params_descr + _wav_duration_params_descr + _wav_nfsk_params_descr + _wav_nfsk_level_params_descr  + _wav_nfsk_decrypt_errors_descr + _wav_dynamic_nfsk_params_descr)
 
 
-def get_aes_params(args) -> Optional[Dict[str, Any]]:
+def global_get_aes_params(args) -> Optional[Dict[str, Any]]:
     return __get_params_from_request(args, _aes_params_descr + _aes_text_params_descr)
 
 
-def get_system_info(additional_data: Dict = {}) -> str:
+def global_get_system_info(additional_data=None) -> str:
+    if additional_data is None:
+        additional_data = {}
     return json.dumps({"main": _main, **additional_data}, cls=__DataclassEncoder, indent=4, ensure_ascii=False)
 
-def get_private_data() -> EndpointPrivateConfig:
-    return __PRIVATE_DATA
+
+def global_get_private_data() -> EndpointPrivateConfig:
+    return _PRIVATE_DATA

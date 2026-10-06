@@ -1,10 +1,9 @@
-import os
 import threading
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Dict, List, Optional
 
-from server_description import get_private_data
+from server_description import global_get_private_data
 from server_logging import EndpointLogger, ExtendedLevelsLogger
 from server_meshtastic import MeshtasticWireHandleThread
 from server_private import EndpointPrivateConfig
@@ -13,7 +12,7 @@ from server_threading import IOQueuedThread
 from server_tox import ToxClientThread
 
 
-class ServerCoreException(BaseException):
+class ServerCoreException(Exception):
     pass
 
 
@@ -30,24 +29,23 @@ class EndpointPrivateHandlerObject:
 
 class ServerCore:
     def __init__(self):
-        self._private_data = get_private_data()
+        self._private_data = global_get_private_data()
         self._logger = ExtendedLevelsLogger(self._private_data)
-        if os.environ.get("WERKZEUG_RUN_MAIN") == "true" and self._private_data.logger_visualize_colour_scheme:
+        if self._private_data.logger_visualize_colour_scheme:
             self._logger.visualize()
         self._core_mutex = threading.Lock()
+
         self._handler = EndpointPrivateHandlerObject(
         streams_storage=StreamsStorage(
         clear_interval=timedelta(seconds=self._private_data.http_session_lifetime),
         stream_lifetime=timedelta(seconds=self._private_data.http_session_lifetime),
         logger=self._logger),
-        private_data=get_private_data(),
+        private_data=self._private_data,
         logger=self._logger)
-        if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
-            self.init_core_threads()
 
-    @with_mutex("core_mutex", wait=False)
-    @property
-    def handler(self) -> EndpointPrivateHandlerObject:
+        self.init_core_threads()
+
+    def get_handler(self) -> EndpointPrivateHandlerObject:
         return self._handler
 
     @property
@@ -65,7 +63,7 @@ class ServerCore:
     def get_working_instances(self, instances: Dict[str, IOQueuedThread], service_name: str, pop: bool = True) -> List[IOQueuedThread]:
         short_names = list()
         for instance_name, instance in instances.items():
-            if instance.is_running:
+            if instance.is_finalizable:
                 short_names.append(instance_name)
         if short_names:
             self._logger.note(f"{service_name} instances: {short_names} was added to threads for finalization list")
@@ -80,7 +78,6 @@ class ServerCore:
         if self._private_data.tox_config:
             try:
                 self._handler.tox_instance = ToxClientThread(self._logger, self._private_data.tox_config)
-                #self._handler.tox_instance.start()
             except Exception as exp:
                 self._handler.logger.exception(f"Exception while initialization tox instance thread: {exp}")
 
@@ -88,32 +85,30 @@ class ServerCore:
                 for node_config in self._private_data.meshtastic_nodes.values():
                     try:
                         self._handler.meshtastic_instances[node_config.short_name] = MeshtasticWireHandleThread(self._handler.logger, node_config)
-                        #self._handler.meshtastic_instances[node_config.short_name].start()
                     except Exception as exp:
                         self._handler.logger.exception(f"Exception while initialization meshtastic instance: {exp}, thread: {node_config.short_name}")
 
     @with_mutex("core_mutex", wait=False)
     def start_core_threads(self) -> None:
-        if os.environ.get("WERKZEUG_RUN_MAIN") == "true":
-            self._logger.core(f"Starting all instance waiting threads")
-            if self._handler.tox_instance:
-                if not self._handler.tox_instance.is_alive():
-                    self._handler.tox_instance.start()
-            for mi in self._handler.meshtastic_instances.values():
-                mi.start()
+        self._logger.core(f"Starting all instance waiting threads")
+        if self._handler.tox_instance:
+            if not self._handler.tox_instance.is_alive():
+                self._handler.tox_instance.start()
+        for mi in self._handler.meshtastic_instances.values():
+            mi.start()
 
     @with_mutex("core_mutex", wait=False)
     def stop_core_threads(self, join_time: float = 7.500, max_iterations_count: int = 16) -> Optional[List[IOQueuedThread]]:
         self._logger.core("Creating thread finalization list for complete stoppage of all running threads")
         working_threads: List[IOQueuedThread] = list()
-        if self._handler.tox_instance and self._handler.tox_instance.is_running:
+        if self._handler.tox_instance and self._handler.tox_instance.is_finalizable:
             working_threads.append(self._handler.tox_instance)
             self._logger.note("Tox instance was added to threads for finalization list")
-        if self._handler.smms_instance and self._handler.smms_instance.is_running:
+        if self._handler.smms_instance and self._handler.smms_instance.is_finalizable:
             working_threads.append(self._handler.smms_instance)
             self._logger.note("SMMS instance was added to threads for finalization list")
-        working_threads += self.get_working_instances(self._handler.meshtastic_instances, "Meshtastic")
-        working_threads += self.get_working_instances(self._handler.meshcore_instances, "Meshcore")
+        working_threads += self.get_working_instances(self._handler.meshtastic_instances, "meshtastic")
+        working_threads += self.get_working_instances(self._handler.meshcore_instances, "meshcore")
 
         if not working_threads:
             raise ServerCoreException("Noone running thread for finalization not found, aborting")
@@ -142,3 +137,12 @@ class ServerCore:
                 self._logger.note(f"Thread {stopped_thread.name} was stopped")
                 working_threads.remove(stopped_thread)
         self._logger.core("Waiting for all threads stopped loop was successfully completed!")
+
+    @with_mutex("core_mutex", wait=False)
+    def restart(self) -> None:
+        self._logger.info("Restarting all threads")
+        self.stop_core_threads()
+        self.init_core_threads()
+        self.start_core_threads()
+        self._logger.info("All threads was restarted")
+

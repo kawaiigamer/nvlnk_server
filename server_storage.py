@@ -2,7 +2,7 @@ import threading
 import uuid
 import inspect
 from functools import wraps
-from typing import Callable, Dict, Union, Optional
+from typing import Callable, Dict, Optional
 from datetime import timedelta
 
 from server_logging import EndpointLogger
@@ -10,7 +10,7 @@ from server_streaming import AsyncAudioStream
 
 
 def with_mutex(mutex_name: str, wait: bool = True):
-    def factory(f):
+    def factory(f: Callable) -> Callable:
         @wraps(f)
         def mutex_function(self, *args, **kwargs):
             if mutex := getattr(self, mutex_name, None):
