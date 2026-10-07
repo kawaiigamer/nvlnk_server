@@ -60,7 +60,7 @@ Basic commands:
 - 🆗 Get a list of known nodes.
 - 🆗 Send a message.
 - 🆗 Receive incoming messages.
-- 🈵 Get metrics for the node in use.
+- 🆗 Save metrics for the node in use.
 
 ### 🈵 Meshcore
 🈵 **WIP**
@@ -69,17 +69,17 @@ Basic commands:
 ___
 🈵 **WIP**
 
-## TODO, Features, Bugs, Changelog, etc
+## TODO, WIP, Features, Bugs, Changelog, etc
 ___
 ### WIP
 - 🈵 Dynamic FSK & Smooth generation(decryption already supported).
-- 🆕! Split `MeshtasticKnownNode` per static and dynamic parts.
-- 🆕! Create endpoints for _tox_ and _meshtastic_.
+
+- 🆕 ! Use _--key_ arg for work with server private config & fix `global_get_private_data`.
+
 - 🆕 Rework `StreamsStorage`.
 - 🆕 Sending commands to threads.
-- 🆕 Global chash for handlers.
 - 🆕 Rework audio streaming service.
-- 
+
 ### Features
 - ✅ ~~Adding central logging system.~~
 - ✅ ~~Working with _different_ mesh nodes.~~
@@ -90,6 +90,12 @@ ___
 - ✅ ~~Decryptor file size limit.~~
 - ✅ ~~Add float as symbols.~~
 - ✅ ~~Create core module that handle for threads.~~
+- ✅ ~~Create endpoints for _tox_ and _meshtastic_.~~
+- ✅ ~~Split `MeshtasticKnownNode` per static and dynamic parts.~~
+- ✅ ~~Refactor folders with _src_.~~
+- ✅ ~~Сorrect `cryptography` module.~~
+- ✅ ~~Write unittests for `cryptography` module.~~
+- ✅ ~~Create one global chash for all handlers of all instances.~~
 - 🆙 _Different_ data for _different_ audio channels.
 - 🆙 Detecting symbols by _intervals_, but not by single values while decryption.
 - 🆙 _Negative_ smoothing symbols values.
@@ -99,3 +105,4 @@ ___
 - ✅ ~~Incorrect max value(+1) with 64 bit types in `_create_value_symbols`.~~
 - 🆘 Browser requests twice same stream `request.range` 
 - 🆘 `crypter` `POST` bug.
+- 🆘 If `create_fsk_frame` uses not `int16`, exception.

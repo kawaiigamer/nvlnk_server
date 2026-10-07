@@ -3,13 +3,14 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Dict, List, Optional
 
-from server_description import global_get_private_data
-from server_logging import EndpointLogger, ExtendedLevelsLogger
-from server_meshtastic import MeshtasticWireHandleThread
-from server_private import EndpointPrivateConfig
-from server_storage import with_mutex, StreamsStorage
-from server_threading import IOQueuedThread
-from server_tox import ToxClientThread
+from src.core.description import global_get_private_data
+from src.log.loggers import EndpointLogger, ExtendedLevelsLogger
+from src.services.meshtastic import MeshtasticWireHandleThread
+from src.core.private_config import EndpointPrivateConfig
+from src.wav.streams_storage import StreamsStorage
+from src.core.threading import IOQueuedThread
+from src.services.tox import ToxClientThread
+from src.core.structs import with_mutex
 
 
 class ServerCoreException(Exception):
@@ -28,9 +29,9 @@ class EndpointPrivateHandlerObject:
 
 
 class ServerCore:
-    def __init__(self):
-        self._private_data = global_get_private_data()
-        self._logger = ExtendedLevelsLogger(self._private_data)
+    def __init__(self, private_key: str):
+        self._private_data = global_get_private_data(private_key)
+        self._logger = ExtendedLevelsLogger(self._private_data.detetime_fmt, self._private_data.timezone, self._private_data.logger_name, self._private_data.log_fmt)
         if self._private_data.logger_visualize_colour_scheme:
             self._logger.visualize()
         self._core_mutex = threading.Lock()

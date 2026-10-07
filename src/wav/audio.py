@@ -6,7 +6,7 @@ from typing import Union, Tuple, List, Iterable, Dict, Any
 
 import numpy as np
 
-from server_logging import EndpointLogger
+from src.log.loggers import EndpointLogger
 
 
 class WavAudio:
@@ -93,19 +93,6 @@ class WavAudioNFSK(WavAudio):
 
     def _bits_seq_to_int(self, seq: Iterable[int]) -> int:
         return int("".join(str(bit) for bit in seq), 2)
-
-    # def _create_value_symbols(self) -> Tuple[List[Union[int, float]], Union[int, float]]:
-    #     interval: Tuple[int, int] = (int(self.data_type_info.min), int(self.data_type_info.max))
-    #     values_range = (abs(interval[0]) + abs(interval[1]))/self.smoothing
-    #     if values_range < self.fsk_level:
-    #         raise ValueError(f"Levels count({self.fsk_level}) is bigger then values range({values_range}) for selected type({self.data_type})!")
-    #     sub_level = self.fsk_level // 2
-    #     symbols = [math.floor(values_range / self.fsk_level * i) for i in
-    #                (range(0, self.fsk_level + 1) if interval[0] == 0 else range(-sub_level, sub_level + 1))]
-    #     # Special fix for 64 bit types
-    #     if np.dtype(self.data_type).itemsize == 8:
-    #         symbols[-1] -= 1
-    #     return ([self.data_type(s) for s in symbols[:sub_level] + symbols[-sub_level:]], self.data_type(symbols[sub_level]))
 
     def _create_value_symbols(self) -> Tuple[List, float]:
         sub_level =  self.fsk_level // 2

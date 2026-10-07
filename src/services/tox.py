@@ -2,6 +2,7 @@ import os
 import ctypes
 import time
 import threading
+import pathlib
 from dataclasses import dataclass
 from typing import Tuple, Optional, List
 
@@ -9,11 +10,10 @@ from datalite import datalite
 from datalite.fetch import fetch_equals
 from frozendict import frozendict
 
-from server_logging import EndpointLogger
-from server_private import ToxClientConfig
-from server_queue import InternalQueuedItem
-from server_storage import with_mutex
-from server_threading import IOQueuedThread, ThreadState
+from src.log.loggers import EndpointLogger
+from src.core.private_config import ToxClientConfig
+from src.core.structs import InternalQueuedItem, with_mutex
+from src.core.threading import IOQueuedThread, ThreadState
 
 
 class ToxInterlocutorNotOnlineException(Exception):
@@ -28,8 +28,8 @@ class ToxCCoreException(Exception):
     pass
 
 
-_MODULE_CONSTS = frozendict(UINT32_MAX=0xFFFFFFFF, RUNTIME_DIR="tox", RUNTIME_PROFILE_FILENAME="default.tox",
-                            RUNTIME_LIBRARY_DIR="tox_library", RUNTIME_LIBRARY_FILENAME="libtoxcore.dll", PUBLIC_KEY_SIZE=32,
+_MODULE_CONSTS = frozendict(UINT32_MAX=0xFFFFFFFF, RUNTIME_DIR=f"{pathlib.Path().resolve()}/tox", RUNTIME_PROFILE_FILENAME="default.tox",
+                            RUNTIME_LIBRARY_DIR=f"{pathlib.Path().resolve()}/tox_library", RUNTIME_LIBRARY_FILENAME="libtoxcore.dll", PUBLIC_KEY_SIZE=32,
                             TEXT_MESSAGE_TYPE_DEFAULT=0, SAVEDATA_TYPE_SAVE=1, SAVEDATA_TYPE_SECRET_KEY=2,
                             FRIEND_NOT_CONNECTED_ONLINE_ERROR=2, CONNECTION_STATUSES={0: "Offline", 1: "Online (UDP)", 2: "Online (TCP)"})
 
@@ -282,14 +282,18 @@ class ToxClientThread(IOQueuedThread):
 
     def run(self) -> None:
         self._logger.debug("Bootstrapping client thread...")
-        with self._mutex:
-            super().run()
-            self._logger.debug(f"Connecting to a DHT node IP: {self._config.bootstrap_ip}, port {self._config.bootstrap_port}, public key: {self._config.bootstrap_key}")
-            bootstrap_success = self._tox_lib.tox_bootstrap(self._tox_instance, self._config.bootstrap_ip.encode('utf-8'), self._config.bootstrap_port, bytes.fromhex(self._config.bootstrap_key), None)
-            if not bootstrap_success:
-                self._logger.critical("Bootstrap failed...")
-                self._state = ThreadState.ERROR_DOWN
-                return
+        #with self._mutex:
+        super().run()
+        self._logger.debug(
+            f"Connecting to a DHT node IP: {self._config.bootstrap_ip}, port {self._config.bootstrap_port}, public key: {self._config.bootstrap_key}")
+        bootstrap_success = self._tox_lib.tox_bootstrap(self._tox_instance, self._config.bootstrap_ip.encode('utf-8'),
+                                                        self._config.bootstrap_port,
+                                                        bytes.fromhex(self._config.bootstrap_key), None)
+        if not bootstrap_success:
+            self._logger.critical("Bootstrap failed...")
+            self._state = ThreadState.ERROR_DOWN
+            return
+
         if self._config.instance_config.interval is None:
             sleep_interval = self._tox_lib.tox_iteration_interval(self._tox_instance) / 1000.0
         else:

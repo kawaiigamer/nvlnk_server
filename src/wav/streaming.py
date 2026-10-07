@@ -14,9 +14,9 @@ from enum import Enum
 import numpy as np
 from flask import Response, stream_with_context
 
-from server_audio import WavAudio, WavAudioNFSK
-from server_cryptography import AESCrypterBase
-from server_logging import SimpleDebugOnlyLogger, EndpointLogger
+from src.wav.audio import WavAudio, WavAudioNFSK
+from src.protocol7.cryptography import AESCrypterBase
+from src.log.loggers import SimpleDebugOnlyLogger, EndpointLogger
 
 
 class AsyncAudioStreamStatus(Enum):
@@ -183,7 +183,7 @@ class AsyncAudioStream(AsyncAudioStreamBase):
                                                                     "samples_rate": samples_rate, "sample_byte_length": sample_byte_length, "frame_byte_length": frame_byte_length,
                                                                     "frame_length_in_data_type": frame_length_in_data_type} }')
 
-            # Detecting data type and audio format
+            # Detecting data type and wav format
             audio_format = struct.unpack("<H", data[20:22])[0]
             if audio_format == self.wav.WAVE_FORMAT_IEEE_FLOAT:
                 data_type_name = f"float{channel_bit_depth}"
@@ -315,13 +315,10 @@ class AsyncAudioStream(AsyncAudioStreamBase):
         self._init_generators()
         if self.status == AsyncAudioStreamStatus.GENERATORS_INITIALIZED:
             self.status = AsyncAudioStreamStatus.RUNNING
-        res = Response(stream_with_context(self._sync_generator_wrapper()), mimetype='audio/wav')
+        res = Response(stream_with_context(self._sync_generator_wrapper()), mimetype='wav/wav')
 
         if paused_once:
             res.call_on_close(self.__make_stopped)
         else:
             res.call_on_close(self.__make_paused)
         return res
-
-
-

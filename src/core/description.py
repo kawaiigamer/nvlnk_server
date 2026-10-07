@@ -1,15 +1,14 @@
 import json
 from datetime import datetime
 from dataclasses import dataclass, field
-from typing import Union, List, Dict, Self, Optional, Any, Type, Tuple
+from typing import Union, List, Dict, Self, Optional, Any, Type
 
 import numpy as np
 
-from server_logging import EndpointLogger, MiddlewareLogger
-from server_private import load_private_data, EndpointPrivateConfig
+from src.log.loggers import MiddlewareLogger
+from src.core.private_config import load_private_data, EndpointPrivateConfig
 
-__SECRET_KEY_256 = "898946929E5274DDE600CD7788B6C557377716197A59A6C5D9063A22C9E40741"
-_PRIVATE_DATA: EndpointPrivateConfig = load_private_data(__SECRET_KEY_256)
+_PRIVATE_DATA: EndpointPrivateConfig = load_private_data(None)
 
 
 @dataclass
@@ -91,7 +90,7 @@ class MainEndpointDescription(OrderedDataclass):
 
     @property
     def running_time(self) -> str:
-        ts: int = int((EndpointLogger.now_with_timezone(self.timezone) - self.started_at).total_seconds())
+        ts: int = int((MiddlewareLogger.now_with_timezone(self.timezone) - self.started_at).total_seconds())
         hours, remainder = divmod(ts, 3600)
         minutes, seconds = divmod(remainder, 60)
         return f"{hours:02}:{minutes:02}:{seconds:02}"
@@ -121,7 +120,7 @@ _wav_dynamic_nfsk_params_descr: List[Param] = [Param("dfsk", "dynamic_fsk", "fal
                                                Param("dsm_min", "dynamic_smoothing_min", 1.0, "Min level for dynamic FSK"), Param("dsm_max", "dynamic_smoothing_max", 3.0, "Max level for dynamic FSK"),
                                                ]
 _wav_nfsk_decrypt_errors_descr: List[Param] = [Param("errors", "errors_mode", "ignore", "'ignore' - ignores any error, 'break' - interrupts decrypt process, 'skip' - skipping error frame, continuing to next frame")]
-_aes_params_descr: List[Param] = [Param("key", "key_str", _PRIVATE_DATA.aes265_key, "256 bits key"), Param("mode", "mode", "CBC", "AES256 mode(GCM or CBC)"),
+_aes_params_descr: List[Param] = [Param("key", "key_str", _PRIVATE_DATA.aes256_key, "256 bits key"), Param("mode", "mode", "CBC", "AES256 mode(GCM or CBC)"),
                                   Param("iv", "iv_length", 16, "Initialization Vector (IV) length in bytes"), Param("tag", "tag", "notag", "Authentication Tag(only for GCM mode)")
                                   ]
 _aes_text_params_descr: List[Param] = [Param("text", "text", "", "Plain text for encryption")]
@@ -162,22 +161,22 @@ _queue_get_items_descr: List[Param] = [Param("count", "count", 512, "Max count d
 
 _endpoints: Dict[str, Union[RoutePart, EndpointPart]] = {
                                             #  ------------------------------------- wav -------------------------------------
-                                            "wav": RoutePart("Uncompressed audio",  {
+                                            "wav": RoutePart("Uncompressed wav",  {
                                                                             "random": RoutePart("Streams using random data as source", {
-                                                                            "stream": EndpointPart("Raw audio/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr + _wav_additional_params_descr),
+                                                                            "stream": EndpointPart("Raw wav/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr + _wav_additional_params_descr),
                                                                             "aes256": RoutePart("AES-256(GCM/CBC) encoding", {
-                                                                                                                        "stream": EndpointPart("AES-256(GCM/CBC) encoded audio/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr + _wav_additional_params_descr + _aes_params_descr)
+                                                                                                                        "stream": EndpointPart("AES-256(GCM/CBC) encoded wav/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr + _wav_additional_params_descr + _aes_params_descr)
                                                                                                                         }),
                                                                             "N-FSK": RoutePart("N-FSK(Frequency Shift Keying) modulation", {
-                                                                                                                 "stream": EndpointPart("N-FSK audio/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr + _wav_additional_params_descr + _wav_nfsk_params_descr + _wav_nfsk_level_params_descr + _wav_dynamic_nfsk_params_descr, presets=_fsk_presets),
+                                                                                                                 "stream": EndpointPart("N-FSK wav/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr + _wav_additional_params_descr + _wav_nfsk_params_descr + _wav_nfsk_level_params_descr + _wav_dynamic_nfsk_params_descr, presets=_fsk_presets),
                                                                                                                  }),
                                                                             "aes256_N-FSK": RoutePart("AES-256(GCM/CBC)+N-FSK(Frequency Shift Keying) modulation", {
-                                                                                                                 "stream": EndpointPart("AES-256(GCM/CBC)+N-FSK audio/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr + _wav_additional_params_descr + _wav_nfsk_params_descr + _wav_nfsk_level_params_descr + _wav_dynamic_nfsk_params_descr + _aes_params_descr),
+                                                                                                                 "stream": EndpointPart("AES-256(GCM/CBC)+N-FSK wav/wav stream", "GET", _wav_params_descr + _wav_duration_params_descr + _wav_additional_params_descr + _wav_nfsk_params_descr + _wav_nfsk_level_params_descr + _wav_dynamic_nfsk_params_descr + _aes_params_descr),
                                                                                                                  }),
                                                                             },),
-                                "text": RoutePart("Text to audio encrypt/decrypt utils", {
-                                                                            "aes256_N-FSK": RoutePart("Text to/from audio/wav encoding/decoding via AES-256(GCM/CBC)+N-FSK", {
-                                                                                                                        "crypter": EndpointPart("Text to audio/wav AES-256(GCM/CBC)+N-FSK crypter(plain text -> bytes -> AES-256 -> bytes -> bits -> wav header + frames[each frame constants any value symbols, each value symbol codes some bits count(1-8)])", "GET, POST", _wav_params_descr + _wav_nfsk_params_descr + _wav_nfsk_level_params_descr + _wav_dynamic_nfsk_params_descr  + _aes_params_descr + _aes_text_params_descr, presets=_fsk_presets, post_params=_post_aes_text_params_descr),
+                                "text": RoutePart("Text to wav encrypt/decrypt utils", {
+                                                                            "aes256_N-FSK": RoutePart("Text to/from wav/wav encoding/decoding via AES-256(GCM/CBC)+N-FSK", {
+                                                                                                                        "crypter": EndpointPart("Text to wav/wav AES-256(GCM/CBC)+N-FSK crypter(plain text -> bytes -> AES-256 -> bytes -> bits -> wav header + frames[each frame constants any value symbols, each value symbol codes some bits count(1-8)])", "GET, POST", _wav_params_descr + _wav_nfsk_params_descr + _wav_nfsk_level_params_descr + _wav_dynamic_nfsk_params_descr  + _aes_params_descr + _aes_text_params_descr, presets=_fsk_presets, post_params=_post_aes_text_params_descr),
                                                                                                                         "crypter/form": EndpointPart("Form for plain text inputting", "GET", []),
                                                                                                                         "decrypter": EndpointPart("Audio/wav file to text AES-256(GCM/CBC)+N-FSK decrypter(wav header + frames[each frame constants any value symbols, each value symbol codes some bits count(1-8)] -> frames -> "
                                                                                                                                                   "bytes -> value symbols -> bits -> bytes -> AES-256 -> bytes -> plain text)\n"
@@ -207,7 +206,7 @@ _endpoints: Dict[str, Union[RoutePart, EndpointPart]] = {
 
 _main = MainEndpointDescription(name="yue-ws-main", status="online", release_type=_PRIVATE_DATA.release_type,
                                 started_at=MiddlewareLogger.now_with_timezone(_PRIVATE_DATA.timezone), timezone=_PRIVATE_DATA.timezone,
-                                tox_id=_PRIVATE_DATA.tox_config.profile_file_name,
+                                tox_id=_PRIVATE_DATA.tox_config.profile_file_name if _PRIVATE_DATA.tox_config else "",
                                 meshtastic_nodes_names=[node_key for node_key in _PRIVATE_DATA.meshtastic_nodes.keys()],
                                 meshcore_nodes_names=[],
                                 services=_endpoints)
@@ -237,5 +236,8 @@ def global_get_system_info(additional_data=None) -> str:
     return json.dumps({"main": _main, **additional_data}, cls=__DataclassEncoder, indent=4, ensure_ascii=False)
 
 
-def global_get_private_data() -> EndpointPrivateConfig:
+def global_get_private_data(key: str) -> EndpointPrivateConfig:
+    global _PRIVATE_DATA
+    if _PRIVATE_DATA.release_type == "PRE_INIT":
+        _PRIVATE_DATA = load_private_data(key)
     return _PRIVATE_DATA

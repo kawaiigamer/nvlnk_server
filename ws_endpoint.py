@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import threading
 import traceback
@@ -6,16 +7,18 @@ import uuid
 from enum import Enum
 
 from functools import wraps
-from typing import Dict, Union, List, Optional, Any, Callable
+from typing import Union, Optional, Callable, List
 
 from flask import Flask, request, Response, render_template, session
 
-from server_core import EndpointPrivateHandlerObject, ServerCore, ServerCoreException
-from server_description import global_get_wav_params, global_get_aes_params, global_get_wav_fsk_params, global_get_system_info
-from server_logging import EndpointLogger
-from server_meshtastic import MeshtasticWireHandleThread
-from server_streaming import AsyncAudioStream, AsyncAudioStreamBase, WavAudio, WavAudioNFSK, AESCrypterBase
+from src.core.server_core import EndpointPrivateHandlerObject, ServerCore, ServerCoreException
+from src.core.description import global_get_wav_params, global_get_aes_params, global_get_wav_fsk_params, global_get_system_info
+from src.log.loggers import EndpointLogger
+from src.services.meshtastic import MeshtasticWireHandleThread, mesh_json_serial
+from src.wav.streaming import AsyncAudioStream, AsyncAudioStreamBase, WavAudio, WavAudioNFSK, AESCrypterBase
 
+
+# -- Globals
 
 class HTTPCodes(Enum):
     OK = 200
@@ -29,21 +32,18 @@ class HTTPCodes(Enum):
     INTERNAL_SERVER_ERROR = 500
     SERVICE_UNAVAILABLE = 503
 
-
-# -- Globals
-
 app = Flask(__name__)
 app.secret_key = uuid.uuid4().hex
 _COMPLEX_CACHE = {}
 _CACHE_LOCK = threading.Lock()
 
 
-def _init_global_cache_at_boot():
+def _init_global_cache_at_boot(private_key: str):
     #print(f"init_global_cache_at_boot called, app.debug", app.debug, 'app.config.get("ENV")', app.config.get("ENV"), 'os.environ.get("WERKZEUG_RUN_MAIN")', os.environ.get("WERKZEUG_RUN_MAIN"))
     if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
         return
     global _COMPLEX_CACHE
-    _COMPLEX_CACHE["core"] = ServerCore()
+    _COMPLEX_CACHE["core"] = ServerCore(private_key)
     _COMPLEX_CACHE["core"].start_core_threads()
 
 
@@ -136,7 +136,10 @@ def favicon():
 def main_page():
     runtime = {"runtime": {}}
     if core := _get_core():
-        runtime["runtime"]["working_instances"] = [wi.name for wi in core.get_working_instances()]
+        runtime["runtime"]["working_instances"] = [wi.name for wi in core.get_working_instances(core.get_handler().meshtastic_instances, "meshtastic", pop=False)]
+        if tox_thread := core.get_handler().tox_instance:
+            if tox_thread.is_running:
+                runtime["runtime"]["working_instances"].append(tox_thread.name)
     return Response(global_get_system_info(runtime), mimetype='application/json')
 
 # -------------------- wav --------------------
@@ -217,6 +220,7 @@ def wav_text_aes256_nfsk_decrypter():
 # -------------------- wav ---------------------------
 # -------------------- tox ---------------------------
 
+
 @app.route('/tox/send_message', methods=['GET'])
 @internal_server_error_throwable
 @authentication_required
@@ -281,79 +285,83 @@ def get_instance_by_id(service: str):
         return instance_valudator
     return factory
 
+
 @app.route('/meshtastic/get_nodes', methods=['GET'])
 @authentication_required
 @get_instance_by_id("meshtastic")
 def meshtastic_get_nodes_endpoint(instance: MeshtasticWireHandleThread):
-    # available_nodes_count: int = len(handler.private_data.meshtastic_nodes)
-    # current_node = request.args.get("ID")
-    # if available_nodes_count > 1 and not current_node:
-    #     return "Node ID is not set", HTTPCodes.CONFLICT.value
-     #if node := handler.meshtastic_instances.get(current_node):
-        result = instance.get_all_known_nodes()
+    if result := instance.get_all_known_nodes():
         if request.args.get("save") == "true":
             instance.save_dumped_nodes(result)
-        response: str = instance._json_format_dumped_nodes(result)
-        _get_core_handler().logger.dump(f"Nodes summary:\n{response}")
+        response: str = instance.json_dumps_nodes(result)
+        nodes_info: List[str] = response.split("},")
+        slice_len: int = 5
+        if len(nodes_info) > slice_len*2:
+            nodes_info = nodes_info[:slice_len] + nodes_info[-slice_len:]
+        _get_core_logger().dump(f"Nodes summary(first and last {slice_len}):\n {'},'.join(nodes_info)}")
         return Response(response, mimetype='application/json')
+    else:
+        return "Nodes not found", HTTPCodes.NOT_FOUND.value
 
 
 @app.route('/meshtastic/send_message', methods=['GET'])
 @authentication_required
-def meshtastic_send_message_endpoint():
-    MAX_TEXT_LENGTH = 160
-    handler = _get_core_handler()
-    current_node = request.args.get("ID")
-    if node := handler.meshtastic_instances.get(current_node):
-        if not node.is_running:
-            return f"Node with ID {current_node} is not running", HTTPCodes.SERVICE_UNAVAILABLE.value
+@get_instance_by_id("meshtastic")
+def meshtastic_send_message_endpoint(instance: MeshtasticWireHandleThread):
+    MAX_TEXT_LENGTH: int = 160
+    if instance:
+        if not instance.is_running:
+            return f"Node with ID {instance.name} is not running", HTTPCodes.SERVICE_UNAVAILABLE.value
         if text := request.args.get("text"):
             if len(text) > MAX_TEXT_LENGTH:
                 return f"Text message too large: {len(text)} > {MAX_TEXT_LENGTH}!", HTTPCodes.CONTENT_TOO_LARGE.value
             try:
-                node.send_message(text, int(request.args.get("ch", 0)), int(request.args.get("to", -1)))
+                instance.send_message(text, int(request.args.get("ch", 0)), int(request.args.get("to", -1)))
                 return "", HTTPCodes.OK.value
             except ValueError:
                 msg = f"Channel index: {request.args.get("ch")} and destination id: {request.args.get("to")} must be integers!"
             except Exception as e:
                 msg = f"Exception while sending message: {e}"
-            handler.logger.exception(msg)
+            _get_core_logger().exception(msg)
             return msg, HTTPCodes.NOT_ACCEPTABLE.value
+        else:
+            return "Message text is not set", HTTPCodes.MISDIRECTED_REQUEST.value
     else:
-        return "Message text is not set", HTTPCodes.MISDIRECTED_REQUEST.value
+        return "Node not found", HTTPCodes.NOT_FOUND.value
 
 
 @app.route('/meshtastic/get_messages', methods=['GET'])
 @internal_server_error_throwable
 @authentication_required
-def meshtastic_get_messages_endpoint():
-    handler = _get_core_handler()
-    current_node = request.args.get("ID")
-    if node := handler.meshtastic_instances.get(current_node):
-        if not node.is_running:
-            return f"Node with ID {current_node} is not running", HTTPCodes.SERVICE_UNAVAILABLE.value
+@get_instance_by_id("meshtastic")
+def meshtastic_get_messages_endpoint(instance: MeshtasticWireHandleThread):
+    if instance:
+        if not instance.is_running:
+            return f"Node with ID {instance.name} is not running", HTTPCodes.SERVICE_UNAVAILABLE.value
         try:
-            count: int = int(request.args.get("count", node.i))
+            count: int = int(request.args.get("count", 250))
         except ValueError:
             return f"Count param is invalid: {request.args.get("count")}", HTTPCodes.NOT_ACCEPTABLE.value
-        return Response([item.to_json() for item in node._output_queue.get_batch(count)],
+        return Response(json.dumps([item.to_json(_get_core_logger()) for item in instance._output_queue.get_batch(count)], default=mesh_json_serial, ensure_ascii=False, indent=4),
                         mimetype='application/json')
-    return f"Node with ID {current_node} not found", HTTPCodes.NOT_FOUND.value
+    else:
+        return f"Node with ID {request.args.get("ID")} not found", HTTPCodes.NOT_FOUND.value
 
 # -------------------- meshtastic --------------------
 
-# -------------------- MAIN --------------------
+# -------------------- MAIN --------- -----------
 
 
 def main() -> None:
+    __default_key: str = "898946929E5274DDE600CD7788B6C557377716197A59A6C5D9063A22C9E40741" # TODO: Remove
     # -- Parse args
     parser = argparse.ArgumentParser(description="ws-http-endpoint")
-    parser.add_argument('-k', '--key', type=str, default="", help='Key for decrypting private data (AES-256 CBC)')
+    parser.add_argument('-k', '--key', type=str, default=__default_key, help='Key for decrypting private data (AES-256 CBC)')
     parser.add_argument('-p', '--port', type=int, default=60600, help='port(default=%(default)s)')
     parser.add_argument("-d", "--debug", default=True, help="enable debug mode(default=%(default)s)")
     args = parser.parse_args()
 
-    _init_global_cache_at_boot()
+    _init_global_cache_at_boot(args.key)
     app.run(host='0.0.0.0', port=args.port, debug=True, use_reloader=True)
 
 

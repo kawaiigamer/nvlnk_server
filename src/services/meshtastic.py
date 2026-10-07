@@ -2,10 +2,11 @@ import json
 import os
 import threading
 import time
+import pathlib
 
 from dataclasses import dataclass, asdict
 from datetime import datetime
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Callable
 
 from datalite.fetch import fetch_equals
 from frozendict import frozendict
@@ -14,17 +15,16 @@ from geographiclib.geodesic import Geodesic
 from datalite import datalite
 from pubsub import pub
 
-from server_logging import EndpointLogger
-from server_private import MeshtasticInternalNodeData
-from server_queue import InternalQueuedItem
+from src.log.loggers import EndpointLogger
+from src.core.private_config import MeshtasticInternalNodeData
+from src.core.structs import InternalQueuedItem, with_mutex
 
 import serial.tools.list_ports
 import meshtastic.serial_interface
 
-from server_storage import with_mutex
-from server_threading import IOQueuedThread, ThreadState
+from src.core.threading import IOQueuedThread, ThreadState
 
-_MODULE_CONSTS = frozendict(RUNTIME_DIR="meshtastic",
+_MODULE_CONSTS = frozendict(RUNTIME_DIR=f"{pathlib.Path().resolve()}/meshtastic",
                             ROLES_ALLOWED=frozendict({
                                 # ----
                                 "CLIENT_BASE": True,
@@ -89,6 +89,7 @@ class MeshtasticNode:
 @datalite(db_path=f"{_MODULE_CONSTS["RUNTIME_DIR"]}/nodes.db")
 @dataclass(eq=False)
 class MeshtasticNodeMetrics:
+    public_key: str
     short_name: str
     hopes: int = 0
     last_online: str = None
@@ -100,12 +101,12 @@ class MeshtasticNodeMetrics:
     snr: float = None
     channelUtilization: float = None
     airUtilTx: float = None
-    _metric_timestramp: str = None
+    _timestramp: str = None
     _distance_km: float = None
     _additional_data: str = None
 
     def __hash__(self):
-        return hash((self.short_name, self._metric_timestramp))
+        return hash((self.short_name, self._timestramp, self.public_key))
 
     @classmethod
     def _calculate_geodistanse_in_km(cls, point_1: Tuple[float, float], point_2: Tuple[float, float]) -> float:
@@ -154,13 +155,14 @@ class MeshtasticWireHandleThread(IOQueuedThread):
         if raw_mac := user_data.get("macaddr", ""):
             node.mac_address = node._bytes_to_mac_string(raw_mac)
         metric = MeshtasticNodeMetrics(
+            public_key=node.public_key,
             short_name=node.short_name,
             hopes=raw.get("hopsAway", -1),
         )
         if last_heard := raw.get("lastHeard"):
             metric.last_online = self._logger.strftime(datetime.fromtimestamp(last_heard))
         metric.messagable = user_data.get("isUnmessagable", False)
-        metric.snr = raw.get("snr"),
+        metric.snr = raw.get("snr")
         if dev_metrics := raw.get("deviceMetrics"):
             metric.uptime_seconds = dev_metrics.get("uptimeSeconds")
             metric.channelUtilization = dev_metrics.get("channelUtilization", 0.0)
@@ -171,8 +173,23 @@ class MeshtasticWireHandleThread(IOQueuedThread):
             metric.longitude = position_data.get("longitude")
         if self._config.real_position and metric.longitude and metric.longitude:
             metric._distance_km = metric._calculate_geodistanse_in_km(self._config.real_position, (metric.longitude, metric.longitude))
+        metric._timestramp = self._logger.strftime_now()
         #metric.additional_data = f"Battery: {position_data.get('batteryLevel', 'N/A')}%"
         return (node, metric)
+
+    def _save_nodes_info(self, nodes_info: List[MeshtasticNode | MeshtasticNodeMetrics]) -> None:
+        for node in nodes_info:
+            model_class = type(node)
+            try:
+                existing_entry = fetch_equals(model_class, field="public_key", value=node.public_key)
+                node.obj_id = existing_entry.obj_id
+                node.update_entry()
+            except (TypeError, AttributeError):
+                try:
+                    node.create_entry()
+                except Exception as e:
+                    self._logger.exception()
+                    print(f"Failed to create a record type: {model_class} for the ID: {node.short_name}: {e}")
 
     @with_mutex("usb_port_mutex")
     def get_all_known_nodes(self, sync_tries_count: int = 3, sync_try_sleep_sec: float = 1.0) -> List[MeshtasticNode]:
@@ -184,7 +201,6 @@ class MeshtasticWireHandleThread(IOQueuedThread):
                     break
             if not self._interface.nodes:
                 raise MeshtasticWireException("The node database is empty or has not yet loaded! Aborting!")
-
             nodes_list: List[MeshtasticNode] = []
             nodes_metrics_list: List[MeshtasticNodeMetrics] = []
             try:
@@ -192,23 +208,17 @@ class MeshtasticWireHandleThread(IOQueuedThread):
 
                     if not _MODULE_CONSTS["ROLES_ALLOWED"].get(raw.get("user", {}).get("role"), _MODULE_CONSTS["ROLES_ALLOWED"]["UNKNOWN_ROLE"]):
                         continue
-
                     node, metric = self._parse_node_data(node_id, raw)
                     nodes_list.append(node)
                     nodes_metrics_list.append(metric)
-
             except MeshtasticWireException as mwe:
                 self._logger.exception(f"MeshtasticWireException: {mwe}")
                 raise
             except Exception as e:
                 self._logger.exception(f"Exception: {e}")
                 raise
-            for node in nodes_list:
-                try:
-                    fetch_equals(MeshtasticNode, field="id", value=node.id)
-                    node.update_entry()
-                except TypeError as e:
-                    node.create_entry()
+            self._save_nodes_info(nodes_list)
+            self._save_nodes_info(nodes_metrics_list)
             return nodes_list
 
     def save_dumped_nodes(self, nodes: List[MeshtasticNode]):
@@ -218,12 +228,8 @@ class MeshtasticWireHandleThread(IOQueuedThread):
             f.write(self._json_format_dumped_nodes(nodes))
 
     @classmethod
-    def _nodes_to_json_str(cls, nodes: List[MeshtasticNode|MeshtasticNodeMetrics]) -> str:
+    def json_dumps_nodes(cls, nodes: List[MeshtasticNode|MeshtasticNodeMetrics]) -> str:
         return json.dumps([asdict(node) for node in nodes], default=mesh_json_serial, ensure_ascii=False, indent=4)
-
-    # @classmethod
-    # def _json_format_dumped_nodes(nodes: List[MeshtasticKnownNode]) -> str:
-    #     return f'[{",\n".join([node.to_json_str() for node in nodes])}]'
 
     @with_mutex("usb_port_mutex")
     def _get_usb_interface(self) -> Optional[SerialInterface]:

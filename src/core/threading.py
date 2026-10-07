@@ -2,10 +2,9 @@ import threading
 from enum import Enum, auto, unique
 from typing import Type
 
-from server_logging import EndpointLogger
-from server_private import InstanceThreadConfig
-from server_queue import FixedTypedConcurrentDequeue, InternalQueuedItem
-from server_storage import with_mutex
+from src.log.loggers import EndpointLogger
+from src.core.private_config import InstanceThreadConfig
+from src.core.structs import FixedTypedConcurrentDequeue, InternalQueuedItem, with_mutex
 
 
 @unique

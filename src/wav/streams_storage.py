@@ -1,25 +1,12 @@
 import threading
 import uuid
 import inspect
-from functools import wraps
+from src.log.loggers import EndpointLogger
 from typing import Callable, Dict, Optional
 from datetime import timedelta
 
-from server_logging import EndpointLogger
-from server_streaming import AsyncAudioStream
-
-
-def with_mutex(mutex_name: str, wait: bool = True):
-    def factory(f: Callable) -> Callable:
-        @wraps(f)
-        def mutex_function(self, *args, **kwargs):
-            if mutex := getattr(self, mutex_name, None):
-                if not wait and mutex.locked():
-                    raise RuntimeError("Mutex is locked")
-                with mutex:
-                    return f(self, *args, **kwargs)
-        return mutex_function
-    return factory
+from src.wav.streaming import AsyncAudioStream
+from src.core.structs import with_mutex
 
 
 class StreamsStorage:
