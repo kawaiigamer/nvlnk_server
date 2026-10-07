@@ -6,7 +6,7 @@ Custom `HTTP` endpoint written on `Flask` for default **WS** with external IP.
 # Basic usage
 ## Startup
 ```
-python3 -m ws_endpoint.py [-h] [-k KEY] [-p PORT] [-d DEBUG]
+$ python3 -m ws_endpoint.py [-h] [-k KEY] [-p PORT] [-d DEBUG]
 
 ws-http-endpoint
 
@@ -19,19 +19,23 @@ options:
 
 ## Getting runtime status & all services information with endpoints + parameters description and presets (json)
 ```
-curl -X GET http://{IP}:{PORT}/
+$ curl -X GET http://{IP}:{PORT}/
 ```
-## If any endpoint needs authentication
 
+## If any endpoint needs authentication
 ```
-curl -X GET http://{IP}:{PORT}/any/endpoint?param1=foo&param2=bar --cookie "access_key=7E74516EFA4FD55DE3E7CD017DF7D364D2DF7B94122740476DFBFB5F10523D6F"
+$ curl -X GET http://{IP}:{PORT}/any/endpoint?param1=foo&param2=bar --cookie "access_key=7E74516EFA4FD55DE3E7CD017DF7D364D2DF7B94122740476DFBFB5F10523D6F"
+```
+
+## Count all code lines(all empty or tabs or spaces only strings will be ignored)
+```
+$ git ls-files  | grep "\.py$" | xargs awk 'NF' | wc -l
 ```
 
 # Endpoints
 - ##### ✅ - Final release, 🆗 - Awaiting final tests, 🈸 - WIP,  🈵 - Development in planning, ⏸️ - Paused,
 - ##### 🈲 - Needs rework, 🆘 - Bug,  ❌ - Canceled,
 - ##### 🆙 - Last updated, 🆕  - New.
-
 
 ## 🈸 wav
 ___
@@ -41,9 +45,9 @@ Allows to create infinite audio streams based on random data, even with non-stan
 
 ## 🈸 Mesh Networks
 ___
+A service for remotely managing nodes in mesh networks, such as `meshtastic` or `meshcore`.
 
 ### 🆗 tox
-
 Basic commands:
 - 🆗 Load saved profile from file.
 - 🆗 Create new profile file using any private key.
@@ -53,8 +57,6 @@ Basic commands:
 - 🆗 Receive incoming messages.
 - 🆗 DB for nodes.
 
-
-A service for remotely managing nodes in mesh networks, such as `meshtastic` or `meshcore`.
 ### 🆗 Meshtastic
 Basic commands:
 - 🆗 Get a list of known nodes.
@@ -63,11 +65,11 @@ Basic commands:
 - 🆗 Save metrics for the node in use.
 
 ### 🈵 Meshcore
-🈵 **WIP**
+- 🈵 **WIP**
 
 ## 🈵 SMMSGateway
 ___
-🈵 **WIP**
+- 🈵 **WIP**
 
 ## TODO, WIP, Features, Bugs, Changelog, etc
 ___
