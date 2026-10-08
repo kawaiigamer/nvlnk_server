@@ -2,7 +2,7 @@ import threading
 from enum import Enum, auto, unique
 from typing import Type
 
-from src.log.loggers import EndpointLogger
+from src.log.loggers import MiddlewareLogger
 from src.core.private_config import InstanceThreadConfig
 from src.core.structs import FixedTypedConcurrentDequeue, InternalQueuedItem, with_mutex
 
@@ -19,7 +19,7 @@ class ThreadState(Enum):
 
 
 class IOQueuedThread(threading.Thread):
-    def __init__(self, logger: EndpointLogger, config: InstanceThreadConfig):
+    def __init__(self, logger: MiddlewareLogger, config: InstanceThreadConfig):
         super().__init__(daemon=True)
         self._logger = logger
         self._name = config.instance_name
@@ -47,14 +47,13 @@ class IOQueuedThread(threading.Thread):
         if self._thread_state == new_state:
             self._logger.warning(f"State is already is {self._thread_state.name}")
             return
-        self._logger.core(f"Changing state: {self._thread_state.name} -> {new_state.name}")
+        self._logger.core(f"Changing thread state: {self._thread_state.name} -> {new_state.name}")
         self._thread_state = new_state
 
     def run(self):
         with self._mutex:
             if self._state == ThreadState.READY:
                 self._state = ThreadState.RUNNING
-                self._logger.info("Thread is running!")
             else:
                 raise RuntimeError(f"Can't run, because current state: {self._state.name}, but expected only {ThreadState.READY.name}")
 
@@ -86,7 +85,7 @@ class IOQueuedThread(threading.Thread):
     def finalize(self):
         "Only sets signal flag, changes state, clears inner queues"
         if self._state != ThreadState.FINALIZING:
-           self._logger.debug("Starting finalize")
+           self._logger.core("Starting finalizing!")
            self._state = ThreadState.FINALIZING
            self._stop_signal.set() if not self._stop_signal.is_set() else self._logger.warning("Stop signal was set before finalize call")
         for q in (self._input_queue, self._output_queue):

@@ -1,75 +1,89 @@
-from enum import Enum
-
 from frozendict import frozendict
 
 from src.core.structs import BiFrozenDict
 
 ANSI_COLORS: frozendict[str, str] = frozendict({
-    "black": "\x1b[1;90;107m",
-    "bold_black": "\x1b[1;30;49m",
-    "underlined_black": "\x1b[1;4;30;49m",
-    "background_black": "\x1b[1;97;40m",
-    "container_black": "\x1b[51m",
-    "red": "\x1b[1;31;49m",
-    "green": "\x1b[1;92;49m",
-    "yellow": "\x1b[1;93;49m",
-    "blue": "\x1b[1;94;49m",
-    "magenta": "\x1b[1;95;49m",
-    "cyan": "\x1b[1;96;49m",
-    "orange": "\x1b[1;38;5;208;49m",
-    "dark_cyan": "\x1b[1;38;5;30;49m",
-    "background_gray": "\x1b[1;97;100m",
-    "background_yellow": "\x1b[1;30;103m",
-    "background_red": "\x1b[1;30;101m",
-    "background_magenta": "\x1b[1;30;105m",
-    "background_blue": "\x1b[1;30;104m",
-    "background_green": "\x1b[1;30;102m",
-    "background_cyan": "\x1b[1;97;106m",
-    "background_orange": "\x1b[1;30;48;5;214m",
+    "black": "[1;30;49m",
+    "red": "[1;31;49m",
+    "magenta": "[1;95;49m",
+    "green": "[1;92m",
+    # "purple_violet_and_magenta": "[1;38;5;93m",
+    # "blue": "[1;94;49m",
+    # "cyan": "[1;96;49m",
+    # --
+    "dark_yellow": "[1;38;2;225;185;70m",
+    # "dark_cyan": "[1;104m",
+    # --
+    "container_orange": "[1;38;5;208;51m",
+    "container_blue": "[1;94;51m",
+    "container_black": "[1;51m",
+    "container_purple_violet_and_magenta": "[1;51;38;5;93m",
+    "container_bright_cyan": "[1;30;106m",
+    # --
+    "background_gray": "[1;97;100m",
+    "background_green": "[1;30;102m",
+    "background_yellow": "[1;30;48;5;220m",
+    "background_dark_blue": "[1;30;48;5;20m",
+    "background_bright_orange": "[1;30;48;5;208m",
+    "background_red": "[1;30;101m",
+    "background_cyan": "[1;30;48;5;6m",
+    "background_magenta": "[1;30;105m",
+    "background_black": "[1;97;40m",
+    # --
+    "underlined_black": "[1;4;30;49m",
 })
-
 
 LOGGING_LEVELS: BiFrozenDict[str, int] = BiFrozenDict({
     'debug': 10,
     'test': 15,
     'note': 20,
+    'dump': 25,
     # --
-    'external': 25,
-    'notify': 30,
-    'info': 35,
-    'dump': 40,
-    'core': 45,
-    'system': 50,
-    'warning': 55,
-    'attention': 60,
+    'external': 35,
+    'system': 40,
+    'memory': 45,
+    'io': 50,
     # --
-    'exception': 65,
-    'error': 70,
-    'critical': 75,
-    'panic': 80,
-    'fatal': 85
+    'metric': 55,
+    'notify': 60,
+    'info': 65,
+    'core': 70,
+    # --
+    'warning': 75,
+    'attention': 80,
+    'exception': 85,
+    # --
+    'error': 90,
+    'critical': 95,
+    'panic': 100,
+    'fatal': 105
 })
 
 ANSI_COLORED_TERMINAL_LOGGING_LEVELS: frozendict[str, str] = frozendict({
-    'debug': "bold_black",
-    'test': "yellow",
-    'note': "cyan",
+    'debug': "black",
+    'test': "dark_yellow",
+    'note': "red",
+    'dump': "background_gray",
     # --
-    'external': "orange",
-    'notify': "dark_cyan",
+    'external': "container_orange",
+    'system': "container_blue",
+    'memory': "container_black",
+    'io': "container_purple_violet_and_magenta",
+    # --
+    'metric': "background_green",
+    'notify': "magenta",
     'info': "green",
-    'dump': "background_cyan",
-    'core': "background_gray",
-    'system': "blue",
-    'warning': "magenta",
-    'attention': "red",
+    'core': "container_bright_cyan",
     # --
-    'exception': "background_yellow",
+    'warning': "background_yellow",
+    'attention': "background_dark_blue",
+    'exception': "background_bright_orange",
+    # --
     'error': "background_red",
-    'critical': "background_blue",
+    'critical': "background_cyan",
     'panic': "background_magenta",
     'fatal': "background_black"
 })
 
-TERMINAL_RESET: str = "\x1b[0m"
-
+TERMINAL_RESET: str = "[0m"
+ANSI_SEQUENCE_ESC = "\x1b"

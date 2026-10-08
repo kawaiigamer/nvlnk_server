@@ -291,8 +291,6 @@ def get_instance_by_id(service: str):
 @get_instance_by_id("meshtastic")
 def meshtastic_get_nodes_endpoint(instance: MeshtasticWireHandleThread):
     if result := instance.get_all_known_nodes():
-        if request.args.get("save") == "true":
-            instance.save_dumped_nodes(result)
         response: str = instance.json_dumps_nodes(result)
         nodes_info: List[str] = response.split("},")
         slice_len: int = 5
@@ -316,7 +314,7 @@ def meshtastic_send_message_endpoint(instance: MeshtasticWireHandleThread):
             if len(text) > MAX_TEXT_LENGTH:
                 return f"Text message too large: {len(text)} > {MAX_TEXT_LENGTH}!", HTTPCodes.CONTENT_TOO_LARGE.value
             try:
-                instance.send_message(text, int(request.args.get("ch", 0)), int(request.args.get("to", -1)))
+                instance._send_message(text, int(request.args.get("ch", 0)), int(request.args.get("to", -1)))
                 return "", HTTPCodes.OK.value
             except ValueError:
                 msg = f"Channel index: {request.args.get("ch")} and destination id: {request.args.get("to")} must be integers!"

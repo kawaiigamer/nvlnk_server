@@ -77,7 +77,8 @@ ___
 - 🈵 Dynamic FSK & Smooth generation(decryption already supported).
 
 - 🆕 ! Use _--key_ arg for work with server private config & fix `global_get_private_data`.
-
+- 🆕 ! Sending commands as `InternalQueuedItem` to _tox_ and _meshtastic_ services in right working thread.
+- 
 - 🆕 Rework `StreamsStorage`.
 - 🆕 Sending commands to threads.
 - 🆕 Rework audio streaming service.

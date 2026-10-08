@@ -70,7 +70,7 @@ class ToxClientThread(IOQueuedThread):
         try:
             lib_path = os.path.join(native_dll_path, _MODULE_CONSTS["RUNTIME_LIBRARY_FILENAME"])
             tox_lib = ctypes.CDLL(lib_path)
-            self._logger.info(f"Native {_MODULE_CONSTS["RUNTIME_LIBRARY_FILENAME"]} DLL loaded")
+            self._logger.system(f"Native {_MODULE_CONSTS["RUNTIME_LIBRARY_FILENAME"]} DLL loaded")
         except Exception as e:
             self._logger.critical(f"Native {_MODULE_CONSTS["RUNTIME_LIBRARY_FILENAME"]} DLL loading exception: {e}")
             raise
@@ -174,7 +174,7 @@ class ToxClientThread(IOQueuedThread):
 
     @with_mutex("io_mutex")
     def _save_profile_file(self) -> None:
-        self._logger.debug(f"Saving tox profile file: {self._profile_file_path}")
+        self._logger.io(f"Saving tox profile file: {self._profile_file_path}")
         if not self._tox_instance:
             raise RuntimeError("Tox instance not initialized")
         profile_file_size = self._tox_lib.tox_get_savedata_size(self._tox_instance)
@@ -192,7 +192,7 @@ class ToxClientThread(IOQueuedThread):
 
     @with_mutex("io_mutex")
     def _load_profile_file(self, options) -> None:
-        self._logger.debug(f"Loading tox profile file: {self._profile_file_path}")
+        self._logger.io(f"Loading tox profile file: {self._profile_file_path}")
         try:
             with open(self._profile_file_path, "rb") as f:
                 profile_file_data = f.read()
@@ -223,7 +223,7 @@ class ToxClientThread(IOQueuedThread):
             private_key_length = len(private_key_bytes)
             private_key_c_array = (ctypes.c_char * private_key_length)(*private_key_bytes)
             private_key_c_array_ptr = ctypes.cast(private_key_c_array, ctypes.POINTER(ctypes.c_char))
-            self._logger.debug("Binding the raw private key to boot options")
+            self._logger.note("Binding the raw private key to boot options")
             self._tox_lib.tox_options_set_savedata_type(options, _MODULE_CONSTS["SAVEDATA_TYPE_SECRET_KEY"])
             self._tox_lib.tox_options_set_savedata_data(options, private_key_c_array_ptr, ctypes.c_size_t(private_key_length))
             self._logger.info(f"Generated from private key profile file data has been successfully added to the Tox load options")
@@ -233,7 +233,7 @@ class ToxClientThread(IOQueuedThread):
         if not self._tox_instance:
             raise ToxCCoreException(f"Failed to create Tox instance. C-Core Error Code: {tox_instance_err.value}")
         if not is_profile_file_exists:
-            self._logger.debug("The Tox instance has been launched directly from private key")
+            self._logger.note("The Tox instance has been launched directly from private key")
             self._save_profile_file()
 
         self._logger.debug("Registering callbacks...")
@@ -284,7 +284,7 @@ class ToxClientThread(IOQueuedThread):
         self._logger.debug("Bootstrapping client thread...")
         #with self._mutex:
         super().run()
-        self._logger.debug(
+        self._logger.io(
             f"Connecting to a DHT node IP: {self._config.bootstrap_ip}, port {self._config.bootstrap_port}, public key: {self._config.bootstrap_key}")
         bootstrap_success = self._tox_lib.tox_bootstrap(self._tox_instance, self._config.bootstrap_ip.encode('utf-8'),
                                                         self._config.bootstrap_port,
@@ -298,7 +298,7 @@ class ToxClientThread(IOQueuedThread):
             sleep_interval = self._tox_lib.tox_iteration_interval(self._tox_instance) / 1000.0
         else:
             sleep_interval = self._config.instance_config.interval
-        self._logger.debug(f"Tox client sleep interval: {sleep_interval} sec")
+        self._logger.note(f"Tox client sleep interval: {sleep_interval} sec")
 
         connected_flag: bool = False
         while not self._stop_signal.is_set():
@@ -310,10 +310,8 @@ class ToxClientThread(IOQueuedThread):
             elif status == 0 and connected_flag:
                 self._logger.error("Tox network connection lost")
                 connected_flag = False
-            items = self._input_queue.get_batch(max_count=12)
-            if items:
-                for cmd_type, data in items:
-                    self._handle_command(cmd_type, data)
+            for command in self._input_queue.get_batch(max_count=12):
+                self._handle_command(command)
             time.sleep(sleep_interval)
 
     @with_mutex("mutex")
@@ -358,7 +356,6 @@ class ToxClientThread(IOQueuedThread):
                     friend.create_entry()
         return friends
 
-    @with_mutex("mutex")
     def _send_message(self, friend_number: str, message: str) -> int:
         self._logger.debug(f"Trying send message Text: {message}, To: {friend_number}")
         friend_pk_bytes = bytes.fromhex(friend_number[:64])
@@ -369,7 +366,7 @@ class ToxClientThread(IOQueuedThread):
         f_err = ctypes.c_int(0)
         friend_status = self._tox_lib.tox_friend_get_connection_status(self._tox_instance, friend_number, ctypes.byref(f_err))
         if friend_status > 0:
-            self._logger.debug("The interlocutor person is online, sending message")
+            self._logger.note("The interlocutor person is online, sending message")
             message_bytes = message.encode('utf-8')
             message_len = len(message_bytes)
             c_array = (ctypes.c_char * message_len)(*message_bytes)
@@ -394,37 +391,46 @@ class ToxClientThread(IOQueuedThread):
                 self._logger.info(f"Message sent, message id: {msg_id}")
                 return msg_id
 
-    @with_mutex("mutex")
-    def _handle_command(self, cmd_type: str, data: Optional[Tuple[str, str]]):
-        if cmd_type == "send_msg":
-            friend_number, message_text = data
-            event_content = {"friend_number": friend_number, "message_text": message_text}
-            event_main_type = "outgoing"
-            try:
-                event_content["msg_id"] = self._send_message(friend_number, message_text)
-            except ToxInterlocutorNotOnlineException:
-                event_sub_type = "Tox interlocutor not online"
-            except ToxCCoreException as tcce:
-                event_sub_type = f"Tox core exception {tcce}"
-            except Exception as e:
-                self._logger.exception(f"Message sending error, Text: {message_text} sent to {friend_number}, Exception: {e}")
-                event_sub_type = f"Sending exception: {e}"
-            else:
-                event_sub_type = "Message sent"
-            self._output_queue.put(InternalQueuedItem(content=event_content,
-                                                     main_type=event_main_type,
-                                                     sub_type=event_sub_type))
-        elif cmd_type == "stop":
-            if self._running and not self.stop_signal.is_set():
-                self._logger.notify("Tox client stopped by external command")
-                self._running = False
-                self.stop_signal.set()
+    def _handle_command(self, item: InternalQueuedItem) -> None:
+        if item.main_type != "command":
+            self._logger.warning(f"Skipping not command item: {item.to_json()}")
+            return
+        match item.sub_type:
+            case "send_message":
+                content_kwargs = item.content.copy()
+                try:
+                    content_kwargs["message_id"] = self._send_message(**item.content)
+                except ToxInterlocutorNotOnlineException:
+                    content_kwargs["status"] = "Tox interlocutor not online"
+                except ToxCCoreException as tcce:
+                    content_kwargs["status"] = f"Tox core exception {tcce}"
+                except Exception as e:
+                    content_kwargs["status"] = f"Other sending exeption: {e}"
+                else:
+                    content_kwargs["status"] = "Success"
+                self._output_queue.put(InternalQueuedItem(content=content_kwargs,
+                                                          main_type="command_status",
+                                                          sub_type="send_message"))
+            case "stop":
+                self.finalize()
 
     @with_mutex("mutex")
     @with_mutex("io_mutex")
     def finalize(self):
         super().finalize()
 
-    def send_message_safely(self, friend_number: int, message: str):
-        self._logger.debug("send_msg command received")
-        self._input_queue.put_top(("send_msg", (friend_number, message)))
+    def send_message_command(self, friend_number: int, message: str) -> None:
+        self._input_queue.put(InternalQueuedItem(
+                content={"friend_number": friend_number, "message": message},
+                main_type="command",
+                sub_type="send_message",
+        ))
+        self._logger.notify("send_message command accepted")
+
+    def stop_command(self) -> None:
+        self._input_queue.put(InternalQueuedItem(
+                content={},
+                main_type="command",
+                sub_type="stop"
+        ))
+        self._logger.notify("stop command accepted")

@@ -52,7 +52,7 @@ class InternalQueuedItem:
     timestamp: datetime = field(default_factory=datetime.now)
 
     def to_json(self, logger: Any) -> Dict:
-        return {"datetime": logger.strftime(self.timestamp), "content": self.content,
+        return {"timestamp": logger.strftime(self.timestamp), "content": self.content,
                 "main_type": self.main_type, "sub_type": self.sub_type}
 
 
@@ -61,18 +61,19 @@ _TF = TypeVar('TF')
 
 class FixedTypedConcurrentDequeue(Generic[_TF]):
     def __init__(self, logger: Logger, max_size: int, name: str) -> None:
-        self._loger = logger
+        self._logger = logger
         self._name = name
         self._deque: deque[_TF] = self._create_internal_deque(max_size)
         self._mutex = threading.Lock()
 
     def _create_internal_deque(self, max_size: int) -> deque[_TF]:
-        self._loger.info(f"Initialing new {self.name} {self.__class__.__name__} with max size: {max_size}")
+        self._logger.memory(f"Initialing new {self.name} {self.__class__.__name__} with max size: {max_size}")
         return deque(maxlen=max_size)
 
     @property
     def name(self) -> str:
         return self._name
+
     @property
     def mutex(self) -> threading.Lock:
         return self._mutex
@@ -88,7 +89,7 @@ class FixedTypedConcurrentDequeue(Generic[_TF]):
     @with_mutex("mutex")
     def get(self) -> Optional[_TF]:
         if not self._deque:
-            self._loger.error("Attempting to get an element from an empty queue!")
+            self._logger.error("Attempting to get an element from an empty queue!")
             return None
         return self._deque.popleft()
 
@@ -110,6 +111,5 @@ class FixedTypedConcurrentDequeue(Generic[_TF]):
     @with_mutex("mutex")
     def drop(self):
         if len(self._deque) > 0:
-            self._loger.notify(f"Dropping {len(self._deque)} items from queue: {self.name}")
+            self._logger.memory(f"Dropping {len(self._deque)} items from queue: {self.name}")
             self._deque = self._create_internal_deque(self._deque.maxlen)
-

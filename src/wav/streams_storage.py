@@ -80,10 +80,10 @@ class StreamsStorage:
     def ___cleaner(self, dt: timedelta = None) -> None:
         real_lt: timedelta = dt if dt else self._stream_lifetime
         for key in list(self._streams_storage.keys()):
-            self._logger.debug(f"{key} -> sg {inspect.getgeneratorstate(self._streams_storage[key].sample_gen)}, running: {self._streams_storage[key].status}", flush=True)
+            self._logger.debug(f"{key} -> sg {inspect.getgeneratorstate(self._streams_storage[key].sample_gen)}, running: {self._streams_storage[key].status}")
             if self._streams_storage[key].is_deprecated(real_lt):
                 del self._streams_storage[key]
-                self._logger.debug(f"Deleted {key}")
+                self._logger.note(f"Deleted {key}")
 
     def __clear_worker(self) -> None:
         while not self._stop_event.wait(self._clear_interval):

@@ -12,29 +12,52 @@ from frozendict import frozendict
 import numpy as np
 
 
-from src.log.terminal_consts import LOGGING_LEVELS, ANSI_COLORS, ANSI_COLORED_TERMINAL_LOGGING_LEVELS, TERMINAL_RESET
-
+from src.log.terminal_consts import LOGGING_LEVELS, ANSI_COLORS, ANSI_COLORED_TERMINAL_LOGGING_LEVELS, TERMINAL_RESET, \
+    ANSI_SEQUENCE_ESC
 
 _MODULE_CONSTS = frozendict(RUNTIME_LOGS_PATH=f"{pathlib.Path().resolve()}/runtime_logs",
                             safe_symbols_table=frozendict({"/": ".", ":": "-", "\\": ".", "*": "'", "|": "--"}))
 
 
 class EndpointLogger:
+    # Lowest log level
     def debug(self, msg: str): raise NotImplementedError()
+    # For any type of test action, what working in development.
     def test(self, msg: str): pass
+    # For small not of тon-obvious behavior.
     def note(self, msg: str): pass
-    def external(self, msg: str): pass
-    def notify(self, msg: str): pass
-    def info(self, msg: str): raise NotImplementedError()
+    # Only for b64/matrix/binary/hex/ or another dumps a logged size that can be reduced.
     def dump(self, msg: Union[str, bytes, np.ndarray], max_length: int = -1): pass
-    def core(self, msg: str): pass
+    # Interact with external independent components (boards, sensors, etc.), but not with mainframes.
+    def external(self, msg: str): pass
+    # For interact with OS or envelopment only.
     def system(self, msg: str): pass
+    # Memory(local, remote, physical, RAM, ROM, VRAM, ramdisk, etc).
+    def memory(self, msg: str): pass
+    # Any I/O operation, includes net.
+    def io(self, msg: str): pass
+    # Any metric(CPU load, memory, free space at disk, fan speed, etc.).
+    def metric(self, msg: str): pass
+    # Notification regarding an event that has already occurred as part of the standard operational cycle.
+    def notify(self, msg: str): pass
+    # Information on the successful preparation, execution, and completion of any operation.
+    def info(self, msg: str): raise NotImplementedError()
+    # Core events еtc: changing the state of threads, stopping them, or recreating them or another.
+    def core(self, msg: str): pass
+    # A warning about anything.
     def warning(self, msg: str): raise NotImplementedError()
+    # This indicates a need for heightened attention, as execution is proceeding with slight deviations or minor, non-critical errors.
     def attention(self, msg: str, trace: bool = False): pass
+    # Caught exception (often due to incorrectly chosen data types, an empty string or `None` instead of a value, the actual type not being safely castable to the required type, etc.).
+    # In such cases, a default value, an alternative algorithm, etc., are often provided. But not always.
     def exception(self, msg: str, trace: bool = False): raise NotImplementedError()
+    # In such cases, there is no default value, and it is impossible to continue executing the task, causing it to terminate at the thread level or within a specific service.
     def error(self, msg: str, trace: bool = True): raise NotImplementedError()
+    # A serious error that threatens to disrupt or cause the abnormal termination of the entire application.
     def critical(self, msg: str): raise NotImplementedError()
+    # Such an error is guaranteed to significantly disrupt or prevent the operation of the entire application or its core functionality.
     def panic(self, msg: str, trace: bool = True): pass
+    # The point of no return has been passed. The application terminates immediately, often without the opportunity to even free up resources, close connections, save data, etc.
     def fatal(self, msg: str, trace: bool = True): raise NotImplementedError()
     @property
     def detetime_fmt(self) -> str: raise NotImplementedError()
@@ -45,7 +68,6 @@ class EndpointLogger:
     def now(self) -> datetime: raise NotImplementedError()
     def strftime(self, dt: datetime) -> str: raise NotImplementedError()
     def strftime_now(self, safe_format: bool = False) -> str: raise NotImplementedError()
-
     @classmethod
     def cut_sequence(cls, sequence: Union[str, bytes, np.ndarray], stay_len: int = 8, stay_at_end: bool = True, length_prefix: bool = False) -> str:
         raise NotImplementedError()
@@ -70,6 +92,9 @@ class MiddlewareLogger(EndpointLogger):
 
     def now(self) -> datetime:
         return self.now_with_timezone(self.detetime_timezone)
+
+    def strptime(self, timestramp: str) -> datetime:
+        return datetime.strptime(timestramp, self.detetime_fmt)
 
     def strftime(self, dt: datetime) -> str:
         return dt.strftime(self.detetime_fmt)
@@ -163,12 +188,13 @@ class ColoredStreamHandler(logging.StreamHandler):
 
     def __init__(self, stream=None):
         super().__init__(stream=stream or sys.stdout)
+
     def format(self, record):
         original_msg = super().format(record)
         log_level_name = LOGGING_LEVELS.v_get(record.levelno.real)
         log_level_colour_name = ANSI_COLORED_TERMINAL_LOGGING_LEVELS.get(log_level_name)
         log_level_colour_code = ANSI_COLORS.get(log_level_colour_name)
-        return f"{log_level_colour_code}{original_msg}{TERMINAL_RESET}"
+        return f"{ANSI_SEQUENCE_ESC}{log_level_colour_code}{original_msg}{ANSI_SEQUENCE_ESC}{TERMINAL_RESET}"
 
 
 class ExtendedLevelsLogger(MiddlewareLogger):
@@ -201,12 +227,14 @@ class ExtendedLevelsLogger(MiddlewareLogger):
     def debug(self, msg: str): self._log('debug', msg)
     def test(self, msg: str): self._log('test', msg)
     def note(self, msg: str): self._log('note', msg)
+    def dump(self, msg: Union[str, bytes, np.ndarray], max_length: int = -1): self._log('dump', msg if max_length < 1 else self.cut_sequence(msg, max_length, length_prefix=True))
     def external(self, msg: str): self._log('external', msg)
+    def system(self, msg: str): self._log('system', msg)
+    def memory(self, msg: str): self._log('memory', msg)
+    def io(self, msg: str): self._log('io', msg)
     def notify(self, msg: str): self._log('notify', msg)
     def info(self, msg: str): self._log('info', msg)
-    def dump(self, msg: Union[str, bytes, np.ndarray], max_length: int = -1): self._log('dump', msg if max_length < 1 else self.cut_sequence(msg, max_length, length_prefix=True))
     def core(self, msg: str): self._log('core', msg)
-    def system(self, msg: str): self._log('system', msg)
     def warning(self, msg: str): self._log('warning', msg)
     def attention(self, msg: str, trace: bool = False): self._log('attention', msg, is_exception=trace)
     def exception(self, msg: str, trace: bool = False): self._log('exception', msg, is_exception=trace)

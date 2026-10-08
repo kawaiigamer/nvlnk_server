@@ -1,6 +1,7 @@
 import json
 import pathlib
 from dataclasses import dataclass, asdict, field
+from datetime import timedelta
 from typing import Tuple, Union, Dict, List
 from frozendict import frozendict
 
@@ -23,7 +24,10 @@ class MeshtasticInternalNodeData:
     short_name: str
     mac: str | None = None
     mac_address_name: str | None = None
+    new_metrics_add_delta_sec: float = timedelta(seconds=30).total_seconds()
+    new_node_add_delta_sec: float = timedelta(hours=36).total_seconds()
     real_position: Tuple[float, float] | None = None
+    only_lora: bool = True
     instance_config: InstanceThreadConfig | None = None
 
     def __post_init__(self):
