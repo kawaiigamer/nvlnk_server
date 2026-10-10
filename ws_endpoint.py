@@ -68,6 +68,48 @@ def _get_core_logger() -> Optional[EndpointLogger]:
         raise ServerCoreException("Core not initiated!")
 
 
+# Process-wide limit for active WAV streaming responses.
+MAX_CONCURRENT_STREAMS = 8
+_ACTIVE_STREAMS = threading.BoundedSemaphore(MAX_CONCURRENT_STREAMS)
+
+
+def limit_concurrent_streams(f):
+    """Reject new WAV streams when all process-wide stream slots are occupied."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not _ACTIVE_STREAMS.acquire(blocking=False):
+            return {
+                "error": {
+                    "code": "stream_limit_reached",
+                    "message": f"At most {MAX_CONCURRENT_STREAMS} streams may be active at once.",
+                }
+            }, HTTPCodes.SERVICE_UNAVAILABLE.value
+
+        release_lock = threading.Lock()
+        released = False
+
+        def release_slot():
+            nonlocal released
+            with release_lock:
+                if not released:
+                    released = True
+                    _ACTIVE_STREAMS.release()
+
+        try:
+            response = f(*args, **kwargs)
+            if isinstance(response, Response) and response.mimetype == "wav/wav":
+                # The slot belongs to the response lifetime, not request-handler lifetime.
+                response.call_on_close(release_slot)
+                return response
+            release_slot()
+            return response
+        except BaseException:
+            release_slot()
+            raise
+
+    return decorated_function
+
+
 def internal_server_error_throwable(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -145,6 +187,7 @@ def main_page():
 
 
 @app.route('/wav/random/stream')
+@limit_concurrent_streams
 @internal_server_error_throwable
 @internal_stream_session_handler
 @authentication_required
@@ -155,6 +198,7 @@ def wav_random_stream(stream: Union[AsyncAudioStream, AsyncAudioStreamBase]) -> 
 
 
 @app.route('/wav/random/N-FSK/stream')
+@limit_concurrent_streams
 @internal_server_error_throwable
 @internal_stream_session_handler
 @authentication_required
@@ -166,6 +210,7 @@ def wav_random_nfsk_stream(stream: Union[AsyncAudioStream, AsyncAudioStreamBase]
 
 
 @app.route('/wav/random/aes256/stream')
+@limit_concurrent_streams
 @internal_server_error_throwable
 @internal_stream_session_handler
 @authentication_required
@@ -177,6 +222,7 @@ def wav_random_aes256_stream(stream: Union[AsyncAudioStream, AsyncAudioStreamBas
 
 
 @app.route('/wav/random/aes256_N-FSK/stream')
+@limit_concurrent_streams
 @internal_server_error_throwable
 @authentication_required
 def wav_random_aes256_nfsk_stream():
@@ -186,6 +232,7 @@ def wav_random_aes256_nfsk_stream():
 
 app.config['LAST_PLAIN_TEXT_STR'] = ''
 @app.route('/wav/text/aes256_N-FSK/crypter', methods=['GET', 'POST'])
+@limit_concurrent_streams
 @internal_server_error_throwable
 @authentication_required
 def wav_text_aes256_nfsk_crypter():
