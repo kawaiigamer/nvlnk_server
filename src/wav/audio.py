@@ -2,7 +2,7 @@ import itertools
 import math
 import random
 import struct
-from typing import Union, Tuple, List, Iterable, Dict, Any
+from typing import Union, Tuple, List, Iterable, Dict, Any, Optional
 
 import numpy as np
 
@@ -13,6 +13,9 @@ class WavAudio:
     supported_data_types = ("int8", "uint8", "int16", "uint16", "int32", "uint32", "int64", "uint64", "float16", "float32", "float64")
     WAVE_FORMAT_PCM = 1
     WAVE_FORMAT_IEEE_FLOAT = 3
+    MAX_CHANNELS: int = 256
+    MAX_SAMPLES_RATE: int = 192000
+    MAX_DURATION: int = 180
 
     def _int_div(self, x: int, y: int, x_name: str, y_name_: str) -> int:
         r, r_mod = divmod(x, y)
@@ -20,12 +23,23 @@ class WavAudio:
             raise ValueError(f"Divmod of {x_name} on {y_name_} must be integer({x}/{y}={r}+mod({r_mod}))")
         return r
 
+    def __throw_error_by_limit(self, min: int, max: int, value: int, name: str) -> Optional[int]:
+        if value < min:
+            raise ValueError(f"Selected {name} must be bigeq then {min} and smaleq then max, but now: {max} > {value} > {min}")
+        elif value > max:
+            raise ValueError(f"Selected {name} must be bigeq then {min}, but now: {value} > {min}")
+        return value
+
     def __init__(self, logger: EndpointLogger, channels: int, channel_bit_depth: int, samples_rate: int, data_type: str = "int16", duration: int = 0, info_only: str = "false", **kwargs):
         self.logger = logger
         self.info_only = info_only.lower() == 'true'
-        self.channels = channels
+
+        self.channels = self.__throw_error_by_limit(1, self.MAX_CHANNELS, channels, "channels")
+        self.samples_rate = self.__throw_error_by_limit(1, self.MAX_SAMPLES_RATE, samples_rate, "samples_rate")
+        self.duration = self.__throw_error_by_limit(0, self.MAX_DURATION, duration, "duration")
+
         self.channel_bit_depth = channel_bit_depth
-        self.samples_rate = samples_rate
+
         self.sample_length = self.channels * int(self.channel_bit_depth // 8)
         self.frame_length = self.sample_length * self.samples_rate
         if data_type not in self.supported_data_types:
@@ -38,7 +52,7 @@ class WavAudio:
         self.data_type_info = np.finfo(self.data_type) if data_type.startswith("f") else np.iinfo(self.data_type)
         self.data_type_length: int = np.dtype(self.data_type).itemsize
         self.frame_length_in_data_type = self._int_div(self.frame_length, self.data_type_length, "frame length", "data type length")
-        self.duration = duration
+
 
     def create_wav_header(self, fixed_frames_count: int = 0) -> bytes:
         if fixed_frames_count:

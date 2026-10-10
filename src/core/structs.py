@@ -5,10 +5,45 @@ from logging import Logger
 from typing import Callable, Any
 from frozendict import frozendict
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from typing import Generic, TypeVar, Optional, Union, Dict
 from collections import deque
+
+
+@dataclass
+class MetricsDataclassBase:
+    def current(self, **kwargs) -> Dict[str, Union[str, int, float]]: return asdict(self)
+
+
+@dataclass
+class RestartsMetric(MetricsDataclassBase):
+    internal_error: int = 0
+    external_error: int = 0
+    command: int = 0
+    other: int = 0
+
+
+@dataclass
+class CommandsMetric(MetricsDataclassBase):
+    accepted: int = 0
+    gave_out: int = 0
+    completed: int = 0
+    dropped: int = 0
+
+
+@dataclass
+class TimeMetric(MetricsDataclassBase):
+    first_started: datetime
+    idle_seconds: float = 0.0
+
+    def current(self, **kwargs) -> Dict[str, Union[str, int, float]]:
+        logger = kwargs.get("logger")
+        life_seconds = (logger.now() - self.first_started).total_seconds()
+        return {"first_started": logger.strftime(self.first_started),
+            "life_hours": round(life_seconds / 3600, 3),
+            "idle_hours": round(self.idle_seconds / 3600, 3),
+            "idle_percent": round((self.idle_seconds / life_seconds) * 100, 3) if life_seconds > 0 else 0.0}
 
 
 def with_mutex(mutex_name: str, wait: bool = True):
@@ -65,6 +100,7 @@ class FixedTypedConcurrentDequeue(Generic[_TF]):
         self._name = name
         self._deque: deque[_TF] = self._create_internal_deque(max_size)
         self._mutex = threading.Lock()
+        self._metric: threading.CommandsMetric = CommandsMetric()
 
     def _create_internal_deque(self, max_size: int) -> deque[_TF]:
         self._logger.memory(f"Initialing new {self.name} {self.__class__.__name__} with max size: {max_size}")
@@ -81,17 +117,21 @@ class FixedTypedConcurrentDequeue(Generic[_TF]):
     @with_mutex("mutex")
     def put_top(self, item: _TF) -> None:
         self._deque.appendleft(item)
+        self._metric.accepted += 1
 
     @with_mutex("mutex")
     def put(self, item: _TF) -> None:
         self._deque.append(item)
+        self._metric.accepted += 1
 
     @with_mutex("mutex")
     def get(self) -> Optional[_TF]:
         if not self._deque:
             self._logger.error("Attempting to get an element from an empty queue!")
             return None
-        return self._deque.popleft()
+        if item := self._deque.popleft():
+            self._metric.gave_out += 1
+            return item
 
     @with_mutex("mutex")
     def is_empty(self) -> bool:
@@ -106,10 +146,15 @@ class FixedTypedConcurrentDequeue(Generic[_TF]):
         items: list[_TF] = []
         while self._deque and len(items) < max_count:
             items.append(self._deque.popleft())
+        self._metric.gave_out += len(items)
         return items
 
     @with_mutex("mutex")
     def drop(self):
-        if len(self._deque) > 0:
-            self._logger.memory(f"Dropping {len(self._deque)} items from queue: {self.name}")
+        if to_drop := len(self._deque): #len(self._deque) > 0:
+            self._metric.dropped += to_drop
+            self._logger.memory(f"Dropping {to_drop} items from queue: {self.name}")
             self._deque = self._create_internal_deque(self._deque.maxlen)
+
+    def get_current_metrics(self) -> Dict[str, int]:
+        return {"length": len(self), "max_length": self._deque.maxlen, **self._metric.current()}

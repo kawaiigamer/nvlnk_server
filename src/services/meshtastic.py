@@ -22,7 +22,7 @@ from pubsub import pub
 from src.log.loggers import MiddlewareLogger
 from src.core.private_config import MeshtasticInternalNodeData
 from src.core.structs import InternalQueuedItem, with_mutex
-from src.core.threading import IOQueuedThread, ThreadState
+from src.core.core_threading import IOQueuedThread, ThreadState
 
 _MODULE_CONSTS = frozendict(RUNTIME_DIR=f"{pathlib.Path().resolve()}/meshtastic",
                             ROLES_ALLOWED=frozendict({
@@ -129,7 +129,7 @@ class MeshtasticMessage:
     to_id: str
     channel: int
     hops: int
-    direction: MeshtasticMessageDirection
+    direction: int
     transport: str = None
     bitfield: int = None
     type: str = None
@@ -205,7 +205,7 @@ class MeshtasticWireHandleThread(IOQueuedThread):
                                  "channel": packet.get('channel'), "hops": packet.get('hopStart', 0) - packet.get('hopLimit', 0), "transport": packet.get('transportMechanism'),
                                  "bitfield": decoded.get('bitfield'), "type": decoded.get('portnum'), "text": decoded.get("text"), "delivered": True}
                 message = MeshtasticMessage(message_uid=uid, _taken_from=self._config.short_name,
-                                            _timestramp=self._logger.strftime_now(), direction=MeshtasticMessageDirection.INCOMING,
+                                            _timestramp=self._logger.strftime_now(), direction=MeshtasticMessageDirection.INCOMING.value,
                                                                                                **parsed_kwargs)
                 message.create_entry()
                 self._output_queue.put(InternalQueuedItem(content=parsed_kwargs, main_type="incoming_message"))
@@ -347,7 +347,7 @@ class MeshtasticWireHandleThread(IOQueuedThread):
     @with_mutex("usb_port_mutex")
     def _send_message(self, text: str, channel: int = 0, destinationId: int = _BROADCAST_IND) -> int:
         self._logger.debug(f"Trying sending message by Lora - {self._config.short_name if self._config.short_name else "auto finding"}")
-        content_kwargs = {"direction": MeshtasticMessageDirection.OUTGOING, "text": text,
+        content_kwargs = {"direction": MeshtasticMessageDirection.OUTGOING.value, "text": text,
                           "channel": channel, "from_id": self._config.short_name, "hops": 0,
                           "transport": self._LORA_TRANSPORT_IND,
                           "bitfield": 1, "type": self._TEXT_MESSAGE_TYPE, "_taken_from": self._config.short_name,
@@ -376,11 +376,12 @@ class MeshtasticWireHandleThread(IOQueuedThread):
             self._interface = self._get_usb_interface()
         except Exception as exp:
             self._logger.exception(f"SerialInterface connection exception: {exp}")
-            self._state = ThreadState.ERROR_DOWN
+            self._state = ThreadState.EXTERNAL_ERROR_DOWN
             return
         try:
             while not self._stop_signal.is_set():
                     time.sleep(self._config.instance_config.interval)
+                    self._statistics.time.idle_seconds += self._config.instance_config.interval
                     try:
                         for item in self._input_queue.get_batch(max_count=4):
                             self._handle_command(item)

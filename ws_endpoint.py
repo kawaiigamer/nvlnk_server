@@ -39,7 +39,6 @@ _CACHE_LOCK = threading.Lock()
 
 
 def _init_global_cache_at_boot(private_key: str):
-    #print(f"init_global_cache_at_boot called, app.debug", app.debug, 'app.config.get("ENV")', app.config.get("ENV"), 'os.environ.get("WERKZEUG_RUN_MAIN")', os.environ.get("WERKZEUG_RUN_MAIN"))
     if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
         return
     global _COMPLEX_CACHE
@@ -136,10 +135,10 @@ def favicon():
 def main_page():
     runtime = {"runtime": {}}
     if core := _get_core():
-        runtime["runtime"]["working_instances"] = [wi.name for wi in core.get_working_instances(core.get_handler().meshtastic_instances, "meshtastic", pop=False)]
+        runtime["runtime"]["working_instances"] = [{wi.name: wi.get_current_metrics()} for wi in core.get_working_instances(core.get_handler().meshtastic_instances, "meshtastic", pop=False)]
         if tox_thread := core.get_handler().tox_instance:
             if tox_thread.is_running:
-                runtime["runtime"]["working_instances"].append(tox_thread.name)
+                runtime["runtime"]["working_instances"].append({tox_thread.name: tox_thread.get_current_metrics()})
     return Response(global_get_system_info(runtime), mimetype='application/json')
 
 # -------------------- wav --------------------

@@ -1,15 +1,20 @@
 import threading
+from dataclasses import dataclass, asdict, field
+from datetime import datetime
+
 from enum import Enum, auto, unique
-from typing import Type
+from typing import Type, Dict, Union
 
 from src.log.loggers import MiddlewareLogger
 from src.core.private_config import InstanceThreadConfig
-from src.core.structs import FixedTypedConcurrentDequeue, InternalQueuedItem, with_mutex
+from src.core.structs import FixedTypedConcurrentDequeue, InternalQueuedItem, with_mutex, MetricsDataclassBase, \
+    TimeMetric, RestartsMetric
 
 
 @unique
 class ThreadState(Enum):
-    ERROR_DOWN = auto()
+    INTERNAL_ERROR_DOWN = auto()
+    EXTERNAL_ERROR_DOWN = auto()
     READY = auto()
     RUNNING = auto()
     FINALIZING = auto()
@@ -18,8 +23,17 @@ class ThreadState(Enum):
     # STOPPED = auto()
 
 
+@dataclass
+class IOQueuedThreadStatistics(MetricsDataclassBase):
+    time: TimeMetric
+    restarts: RestartsMetric = field(default_factory=RestartsMetric)
+
+    def current(self, **kwargs) -> Dict[str, Union[str, int, float]]:
+        return {"time": self.time.current(**kwargs), "restarts": self.restarts.current()}
+
+
 class IOQueuedThread(threading.Thread):
-    def __init__(self, logger: MiddlewareLogger, config: InstanceThreadConfig):
+    def __init__(self, logger: MiddlewareLogger, config: InstanceThreadConfig, statistics: IOQueuedThreadStatistics = None):
         super().__init__(daemon=True)
         self._logger = logger
         self._name = config.instance_name
@@ -29,10 +43,16 @@ class IOQueuedThread(threading.Thread):
         self._mutex = threading.Lock()
         self._stop_signal = threading.Event()
         self._thread_state: ThreadState = ThreadState.READY
+        self._statistics: IOQueuedThreadStatistics = statistics if statistics else IOQueuedThreadStatistics(TimeMetric(first_started=self._logger.now()))
 
     @classmethod
     def from_another(cls, other_thread: Type["cls"]):
-        return cls(other_thread._logger, other_thread.config)
+        if other_thread.state == ThreadState.INTERNAL_ERROR_DOWN:
+            other_thread._statistics.restarts.internal_error += 1
+        elif other_thread.state == ThreadState.EXTERNAL_ERROR_DOWN:
+            other_thread._statistics.restarts.external_error += 1
+
+        return cls(other_thread._logger, other_thread.config, other_thread._statistics)
 
     @property
     def name(self) -> str:
@@ -79,7 +99,13 @@ class IOQueuedThread(threading.Thread):
 
     @property
     def is_finalizable(self) -> bool:
-        return self._state not in (ThreadState.ERROR_DOWN, ThreadState.FINALIZED, ThreadState.FINALIZING)
+        return self._state not in (ThreadState.INTERNAL_ERROR_DOWN, ThreadState.EXTERNAL_ERROR_DOWN, ThreadState.FINALIZED, ThreadState.FINALIZING)
+
+    def get_current_metrics(self) -> Dict[str, int]:
+        return {"thread_name": self.name, "state": self._state.name, "timestamp": self._logger.strftime_now(),
+                "input_queue": self._input_queue.get_current_metrics(),
+                "output_queue": self._output_queue.get_current_metrics(),
+                **self._statistics.current(logger=self._logger)}
 
     @with_mutex("mutex")
     def finalize(self):

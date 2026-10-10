@@ -8,7 +8,7 @@ from src.log.loggers import EndpointLogger, ExtendedLevelsLogger
 from src.services.meshtastic import MeshtasticWireHandleThread
 from src.core.private_config import EndpointPrivateConfig
 from src.wav.streams_storage import StreamsStorage
-from src.core.threading import IOQueuedThread
+from src.core.core_threading import IOQueuedThread
 from src.services.tox import ToxClientThread
 from src.core.structs import with_mutex
 

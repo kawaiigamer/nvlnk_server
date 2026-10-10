@@ -13,7 +13,7 @@ from frozendict import frozendict
 from src.log.loggers import EndpointLogger
 from src.core.private_config import ToxClientConfig
 from src.core.structs import InternalQueuedItem, with_mutex
-from src.core.threading import IOQueuedThread, ThreadState
+from src.core.core_threading import IOQueuedThread, ThreadState
 
 
 class ToxInterlocutorNotOnlineException(Exception):
@@ -43,7 +43,7 @@ class ToxInterlocutor:
 
 
 class ToxClientThread(IOQueuedThread):
-    def __init__(self, logger: EndpointLogger,  config: ToxClientConfig):
+    def __init__(self, logger: EndpointLogger, config: ToxClientConfig):
         super().__init__(logger, config.instance_config)
         self._io_mutex = threading.Lock()
         self._config = config
@@ -291,7 +291,7 @@ class ToxClientThread(IOQueuedThread):
                                                         bytes.fromhex(self._config.bootstrap_key), None)
         if not bootstrap_success:
             self._logger.critical("Bootstrap failed...")
-            self._state = ThreadState.ERROR_DOWN
+            self._state = ThreadState.INTERNAL_ERROR_DOWN
             return
 
         if self._config.instance_config.interval is None:
@@ -313,6 +313,7 @@ class ToxClientThread(IOQueuedThread):
             for command in self._input_queue.get_batch(max_count=12):
                 self._handle_command(command)
             time.sleep(sleep_interval)
+            self._statistics.time.idle_seconds += sleep_interval
 
     @with_mutex("mutex")
     def get_friend_list(self) -> List[ToxInterlocutor]:

@@ -28,6 +28,8 @@ class __DataclassEncoder(json.JSONEncoder):
             return float(obj)
         if isinstance(obj, bytes):
             return obj.hex().upper()
+        if isinstance(obj, datetime):
+            return obj.strftime(_PRIVATE_DATA.detetime_fmt)
         return super().default(obj)
 
 
