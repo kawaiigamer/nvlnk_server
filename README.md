@@ -76,12 +76,10 @@ ___
 ### WIP
 - 🈵 Dynamic FSK & Smooth generation(decryption already supported).
 
-- 🆕 ! Add metrics.
-- 🆕 ! Fix _AES-256 CBC_ mode `HMAC` validation.
 - 🆕 ! Use _--key_ arg for work with server private config & fix `global_get_private_data`.
 - 🆕 ! Add metrics to `IOQueuedThread` and `FixedTypedConcurrentDequeue`.
 - 🆕 ! Add limits for wav engine and running `Streams` count.
-
+- 🆕 ! fix `stop()`.
 - 🆕 Rework `StreamsStorage`.
 - 🆕 Sending commands to threads.
 - 🆕 Rework audio streaming service.
@@ -103,6 +101,7 @@ ___
 - ✅ ~~Write unittests for `cryptography` module.~~
 - ✅ ~~Create one global chash for all handlers of all instances.~~
 - ✅ ~~Sending commands as `InternalQueuedItem` to _tox_ and _meshtastic_ services in right working thread.~~
+- ✅ ~~Add basic metrics.~~
 - 🆙 _Different_ data for _different_ audio channels.
 - 🆙 Detecting symbols by _intervals_, but not by single values while decryption.
 - 🆙 _Negative_ smoothing symbols values.
@@ -110,6 +109,7 @@ ___
 
 ### Bugs
 - ✅ ~~Incorrect max value(+1) with 64 bit types in `_create_value_symbols`.~~
+- ✅ ~~Incorrect _AES-256 CBC_ mode `HMAC` validation.~~
 - 🆘 Browser requests twice same stream `request.range` 
 - 🆘 `crypter` `POST` bug.
 - 🆘 If `create_fsk_frame` uses not `int16`, exception.

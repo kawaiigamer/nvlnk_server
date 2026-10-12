@@ -100,7 +100,7 @@ class FixedTypedConcurrentDequeue(Generic[_TF]):
         self._name = name
         self._deque: deque[_TF] = self._create_internal_deque(max_size)
         self._mutex = threading.Lock()
-        self._metric: threading.CommandsMetric = CommandsMetric()
+        self._metric: CommandsMetric = CommandsMetric()
 
     def _create_internal_deque(self, max_size: int) -> deque[_TF]:
         self._logger.memory(f"Initialing new {self.name} {self.__class__.__name__} with max size: {max_size}")
@@ -151,7 +151,7 @@ class FixedTypedConcurrentDequeue(Generic[_TF]):
 
     @with_mutex("mutex")
     def drop(self):
-        if to_drop := len(self._deque): #len(self._deque) > 0:
+        if to_drop := len(self._deque):
             self._metric.dropped += to_drop
             self._logger.memory(f"Dropping {to_drop} items from queue: {self.name}")
             self._deque = self._create_internal_deque(self._deque.maxlen)

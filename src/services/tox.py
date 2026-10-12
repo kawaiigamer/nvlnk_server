@@ -282,7 +282,6 @@ class ToxClientThread(IOQueuedThread):
 
     def run(self) -> None:
         self._logger.debug("Bootstrapping client thread...")
-        #with self._mutex:
         super().run()
         self._logger.io(
             f"Connecting to a DHT node IP: {self._config.bootstrap_ip}, port {self._config.bootstrap_port}, public key: {self._config.bootstrap_key}")

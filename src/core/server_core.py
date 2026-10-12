@@ -34,7 +34,7 @@ class ServerCore:
         self._logger = ExtendedLevelsLogger(self._private_data.detetime_fmt, self._private_data.timezone, self._private_data.logger_name, self._private_data.log_fmt)
         if self._private_data.logger_visualize_colour_scheme:
             self._logger.visualize()
-        self._core_mutex = threading.Lock()
+        self._core_mutex = threading.RLock()
 
         self._handler = EndpointPrivateHandlerObject(
         streams_storage=StreamsStorage(
@@ -62,15 +62,13 @@ class ServerCore:
         return self._private_data
 
     def get_working_instances(self, instances: Dict[str, IOQueuedThread], service_name: str, pop: bool = True) -> List[IOQueuedThread]:
-        short_names = list()
-        for instance_name, instance in instances.items():
-            if instance.is_finalizable:
-                short_names.append(instance_name)
-        if short_names:
-            self._logger.note(f"{service_name} instances: {short_names} was added to threads for finalization list")
-        else:
-            self._logger.note(f"Not a single {service_name} instance was added to threads for finalization list")
-        return [instances.pop(short_name) if pop else instances.get(short_name) for short_name in short_names]
+        result_instances: List[IOQueuedThread] = []
+        for instance_name in list(instances.keys()):
+            instance = instances.get(instance_name)
+            if instance.is_finalizable and instance.ident is not None:
+                result_instances.append(instances.pop(instance_name) if pop else instance)
+        self._logger.note(f"From {service_name} instances were added to threads for finalization list: {[ri.name for ri in result_instances] if result_instances else 'Not a single'}")
+        return result_instances
 
     @with_mutex("core_mutex", wait=False)
     def init_core_threads(self) -> None:
@@ -85,7 +83,7 @@ class ServerCore:
         if self._private_data.meshtastic_nodes:
                 for node_config in self._private_data.meshtastic_nodes.values():
                     try:
-                        self._handler.meshtastic_instances[node_config.short_name] = MeshtasticWireHandleThread(self._handler.logger, node_config)
+                        self._handler.meshtastic_instances[node_config.short_name] = MeshtasticWireHandleThread(self._logger, node_config)
                     except Exception as exp:
                         self._handler.logger.exception(f"Exception while initialization meshtastic instance: {exp}, thread: {node_config.short_name}")
 
@@ -99,7 +97,7 @@ class ServerCore:
             mi.start()
 
     @with_mutex("core_mutex", wait=False)
-    def stop_core_threads(self, join_time: float = 7.500, max_iterations_count: int = 16) -> Optional[List[IOQueuedThread]]:
+    def stop_core_threads(self, join_time: float = 2.500, max_iterations_count: int = 16) -> Optional[List[IOQueuedThread]]:
         self._logger.core("Creating thread finalization list for complete stoppage of all running threads")
         working_threads: List[IOQueuedThread] = list()
         if self._handler.tox_instance and self._handler.tox_instance.is_finalizable:
@@ -112,7 +110,8 @@ class ServerCore:
         working_threads += self.get_working_instances(self._handler.meshcore_instances, "meshcore")
 
         if not working_threads:
-            raise ServerCoreException("Noone running thread for finalization not found, aborting")
+            self._logger.core("Noone running thread for finalization not found, aborting")
+            return
         self._logger.core(f"Starting finalization of all running threads: {len(working_threads)}")
         for working_thread in working_threads:
             working_thread.finalize()
@@ -120,16 +119,18 @@ class ServerCore:
         loop_counter: int = 0
         self._logger.core(f"Starting waiting for all threads stopped loop with join time: {join_time} sec, max iterations count: {max_iterations_count}")
         while working_threads:
+            per_thread_timeout = join_time / len(working_threads)
+            self._logger.debug(f"Join timeout per thread now is: {per_thread_timeout}")
             loop_counter += 1
             if loop_counter == max_iterations_count:
                 self._logger.error(
-                    f"Loop waiting for all threads stopped completed, but threads: {[t.name for t in working_threads]} not stopped, returning its list")
+                    f"Loop waiting for all threads stopped completed, but threads: {[t.name for t in working_threads]} not stopped, returning it's list")
                 return working_threads
-            self._logger.debug(f"Running {1}/{max_iterations_count} iteration of waiting for all threads stopped loop")
+            self._logger.debug(f"Running {loop_counter}/{max_iterations_count} iteration of waiting for all threads stopped loop")
             stopping_threads: List[IOQueuedThread] = list()
             for working_thread in working_threads:
                 try:
-                    working_thread.join(join_time)
+                    working_thread.join(timeout=max(0.01, per_thread_timeout))
                     if not working_thread.is_alive():
                         stopping_threads.append(working_thread)
                 except RuntimeError:
@@ -146,4 +147,3 @@ class ServerCore:
         self.init_core_threads()
         self.start_core_threads()
         self._logger.info("All threads was restarted")
-

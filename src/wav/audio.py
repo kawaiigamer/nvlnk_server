@@ -17,6 +17,11 @@ class WavAudio:
     MAX_SAMPLES_RATE: int = 192000
     MAX_DURATION: int = 180
 
+    @classmethod
+    def get_limits(cls) -> Dict[str, Union[int, float, Tuple]]:
+        return {"supported_data_types": ",".join(cls.supported_data_types), "channels": cls.MAX_CHANNELS,
+                "sapmles_rate": cls.MAX_SAMPLES_RATE, "duration_seconds": cls.MAX_DURATION}
+
     def _int_div(self, x: int, y: int, x_name: str, y_name_: str) -> int:
         r, r_mod = divmod(x, y)
         if r_mod != 0:
@@ -101,6 +106,11 @@ class WavAudioNFSK(WavAudio):
                          ("ᐁᐃᐅᐊᐯᐱᐸᑁᑌᑎᑐᑕᗄᗐᗑᗜᗝᗳⴵ" "ꡀꡁꡂꡃꡄꡅꡆꡇꡈꡉꡊꡋꡌꡍꡎꡏꡐꡑꡒꡓꡔꡕꡖꡗꡘꡙꡚꡛꡜꡝꡞꡟꡠꡡꡢꡣꡤꡥꡦꡧꡨꡩꡪꡫꡬꡭꡮꡯꡰꡱꡲꡳ꡴꡵" "䷀䷒䷓䷚䷾䷁䷂䷄䷅䷕䷆䷇")
                            #"∩∪∫∏∬∭∮∯∰∱∲∳" "䷈䷉䷊䷋䷌䷍䷎䷏䷐䷑䷔䷘䷙䷛䷜䷝䷞䷟䷠䷡䷢䷣䷤䷥䷦䷧䷪䷫䷬䷭䷮䷯䷰䷱䷲䷳䷴䷵䷶䷷䷸䷹䷺䷻䷼䷽䷿")
                         )
+    @classmethod
+    def get_limits(cls) -> Dict[str, Union[int, float, Tuple]]:
+        return {"supported_fsk_levels": cls.supported_fsk_levels,
+                "max_dynamic_smoothing_diff": cls.max_dynamic_smoothing_diff,
+                **super().get_limits()}
 
     def _base256_chr(self, no: int) -> str:
         return self._BASE256_CHARSET[no]

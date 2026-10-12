@@ -26,8 +26,11 @@ class AESCrypterBase:
     def decrypt(self, data: bytes) -> str:
         raise NotImplementedError(f"Not implemented in {self.__class__.__name__} class")
 
-    def to_json(self) -> Dict[str, Any]:
-        return {"class": self.__class__.__name__, "key": self._key.hex().upper(), "iv_length": self._iv_length, "additional_payload_length": self.additional_payload_length}
+    def to_json(self, safe: bool = False) -> Dict[str, Any]:
+        j = {"class": self.__class__.__name__, "iv_length": self._iv_length, "additional_payload_length": self.additional_payload_length}
+        if not safe:
+            j["key"] = self._key.hex().upper()
+        return j
 
     @staticmethod
     def from_config(config: Dict[str, Union[str, int]]) -> Self:
@@ -113,8 +116,8 @@ class AES256CrypterGCM(AESCrypterBase):
         tag, ciphertext, nonce = self._split(data.encode() if isinstance(data, str) else data)
         return self._crypter.decrypt(nonce, ciphertext + tag, None).decode()
 
-    def to_json(self) -> Dict[str, Any]:
-        return {**super().to_json(), "gcm_sequence": ",".join([sm.name for sm in self.gcm_sequence])}
+    def to_json(self, safe: bool = True) -> Dict[str, Any]:
+        return {**super().to_json(safe), "gcm_sequence": ",".join([sm.name for sm in self.gcm_sequence])}
 
 
 @unique
@@ -128,10 +131,11 @@ class AES256CrypterCBC(AESCrypterBase):
     _IV_SIZE = 16
     _HMAC_SIZE = 32
 
-    def __init__(self, hmac_key: Union[str, bytes], cbc_sequence: Union[Tuple[CBCPart, CBCPart, CBCPart], str] = (CBCPart.IV, CBCPart.CIPHERTEXT, CBCPart.HMAC), **kwargs):
+    def __init__(self, cbc_sequence: Union[Tuple[CBCPart, CBCPart, CBCPart], str] = (CBCPart.IV, CBCPart.CIPHERTEXT, CBCPart.HMAC), **kwargs):
+        print(kwargs)
         super().__init__(**kwargs)
         self.cbc_sequence = tuple(CBCPart[sm] for sm in cbc_sequence.split(",")) if isinstance(cbc_sequence, str) else cbc_sequence
-        self._hmac_key: bytes = hmac_key.encode() if isinstance(hmac_key, str) else hmac_key
+        self._hmac_key: bytes = kwargs.get("hmac_key", "").encode()
         self._aes_payload_length = self._IV_SIZE + self._HMAC_SIZE
         self._iv_length = self._IV_SIZE
 
@@ -183,21 +187,19 @@ class AES256CrypterCBC(AESCrypterBase):
     def encrypt(self, data: Union[bytes, str]) -> bytes:
         iv = os.urandom(self._iv_length)
         padder = padding.PKCS7(algorithms.AES.block_size).padder()
-        padded_data = padder.update(data.encode('utf-8') if isinstance(data, str) else data) + padder.finalize()
-        cipher = Cipher(algorithms.AES(self._key), modes.CBC(iv))
-        encryptor = cipher.encryptor()
-        encrypted_bytes = encryptor.update(padded_data) + encryptor.finalize()
+        encryptor = Cipher(algorithms.AES(self._key), modes.CBC(iv)).encryptor()
+        encrypted_bytes = encryptor.update(padder.update(data.encode('utf-8') if isinstance(data, str) else data) + padder.finalize()) + encryptor.finalize()
         hmac_sha256: bytes = hmac.digest(self._hmac_key, encrypted_bytes + iv, hashlib.sha256)
         return self._build(iv, encrypted_bytes, hmac_sha256)
 
     def decrypt(self, data: Union[bytes, str]) -> str:
         iv, ciphertext, hmac_val = self._split(bytes.fromhex(data) if isinstance(data, str) else data)
-        cipher = Cipher(algorithms.AES(self._key), modes.CBC(iv))
-        decryptor =  cipher.decryptor()
-        padded_data = decryptor.update(ciphertext) + decryptor.finalize()
+        expected_hmac = hmac.digest(self._hmac_key, ciphertext + iv, hashlib.sha256)
+        if not hmac.compare_digest(hmac_val, expected_hmac):
+            raise ValueError("HMAC verification failed. Data integrity compromised.")
+        decryptor = Cipher(algorithms.AES(self._key), modes.CBC(iv)).decryptor()
         unpadder = padding.PKCS7(algorithms.AES.block_size).unpadder()
-        plain_text_bytes = unpadder.update(padded_data) + unpadder.finalize()
-        return plain_text_bytes.decode()
+        return (unpadder.update(decryptor.update(ciphertext) + decryptor.finalize()) + unpadder.finalize()).decode()
 
-    def to_json(self) -> Dict[str, Any]:
-        return {**super().to_json(), "hmac_key": self._hmac_key, "cbc_sequence": ",".join([sm.name for sm in self.cbc_sequence])}
+    def to_json(self, safe: bool = True) -> Dict[str, Any]:
+        return {**super().to_json(safe), "hmac_key": self._hmac_key.decode(), "cbc_sequence": ",".join([sm.name for sm in self.cbc_sequence])}

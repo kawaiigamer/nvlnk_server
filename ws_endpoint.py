@@ -12,7 +12,7 @@ from typing import Union, Optional, Callable, List
 from flask import Flask, request, Response, render_template, session
 
 from src.core.server_core import EndpointPrivateHandlerObject, ServerCore, ServerCoreException
-from src.core.description import global_get_wav_params, global_get_aes_params, global_get_wav_fsk_params, global_get_system_info
+from src.core.description import global_get_wav_params, global_get_aes_params, global_get_wav_fsk_params, global_get_system_info, _PRIVATE_KEY
 from src.log.loggers import EndpointLogger
 from src.services.meshtastic import MeshtasticWireHandleThread, mesh_json_serial
 from src.wav.streaming import AsyncAudioStream, AsyncAudioStreamBase, WavAudio, WavAudioNFSK, AESCrypterBase
@@ -32,10 +32,14 @@ class HTTPCodes(Enum):
     INTERNAL_SERVER_ERROR = 500
     SERVICE_UNAVAILABLE = 503
 
+
 app = Flask(__name__)
 app.secret_key = uuid.uuid4().hex
-_COMPLEX_CACHE = {}
-_CACHE_LOCK = threading.Lock()
+
+import multiprocessing
+_manager = multiprocessing.Manager()
+_COMPLEX_CACHE = _manager.dict()#{}
+_CACHE_LOCK = _manager.Lock()#threading.Lock()
 
 
 def _init_global_cache_at_boot(private_key: str):
@@ -44,6 +48,7 @@ def _init_global_cache_at_boot(private_key: str):
     global _COMPLEX_CACHE
     _COMPLEX_CACHE["core"] = ServerCore(private_key)
     _COMPLEX_CACHE["core"].start_core_threads()
+    _COMPLEX_CACHE["streams_semaphore"] = threading.BoundedSemaphore(_COMPLEX_CACHE["core"].private_data.max_concurrent_streams)
 
 
 def _get_core() -> Optional[ServerCore]:
@@ -118,7 +123,7 @@ def internal_stream_session_handler(f):
             s = AsyncAudioStreamBase(handler.logger,  uuid.uuid4().hex)
             new_stream: AsyncAudioStream = f(stream=s, *args, **kwargs)
             handler.logger.debug(f"Not found uuid in session StreamBase: {s.stream_uuid}, new_stream {new_stream.stream_uuid}")
-        handler.streams_storage.add_stream(new_stream.stream_uuid, new_stream)
+        handler.astreams_storage.add_stream(new_stream.stream_uuid, new_stream)
         session['stream_uuid'] = new_stream.stream_uuid
         session.modified = True
         return new_stream.start()
@@ -184,21 +189,22 @@ def wav_random_aes256_nfsk_stream():
     return AsyncAudioStream(wav=WavAudioNFSK(**global_get_wav_fsk_params(request.args), logger=core_logger), logger=core_logger, crypter=AESCrypterBase.from_config(global_get_aes_params(request.args))).start()
 
 
-app.config['LAST_PLAIN_TEXT_STR'] = ''
 @app.route('/wav/text/aes256_N-FSK/crypter', methods=['GET', 'POST'])
 @internal_server_error_throwable
 @authentication_required
 def wav_text_aes256_nfsk_crypter():
     aes_params = global_get_aes_params(request.args)
+    logger = _get_core_logger()
     if request.method == 'POST':
-        aes_params["text"] = request.form.get('text', aes_params.get("text"))
-        app.config['LAST_PLAIN_TEXT_STR'] = aes_params["text"]
+        crypter_text: str = request.form.get('text', aes_params.get("text"))
+        session['aes256_N-FSK/crypter_text'] = crypter_text
+        logger.debug(f"Setting session {session.get('uid')} aes256_N-FSK/crypter_text = {crypter_text}")
     else:
-        if app.config['LAST_PLAIN_TEXT_STR']:
-            aes_params["text"] = app.config['LAST_PLAIN_TEXT_STR']
-            app.config['LAST_PLAIN_TEXT_STR'] = ''
-    core_logger = _get_core_logger()
-    return AsyncAudioStream(wav=WavAudioNFSK(**global_get_wav_fsk_params(request.args), logger=handler.logger), crypter=AESCrypterBase.from_config(aes_params), logger=handler.logger).start()
+        if crypter_text := session.get('aes256_N-FSK/crypter_text'):
+            aes_params["text"] = crypter_text
+            session['aes256_N-FSK/crypter_text'] = None
+            logger.debug(f"Unsetting session {session.get('uid')} aes256_N-FSK/crypter_text")
+    return AsyncAudioStream(wav=WavAudioNFSK(**global_get_wav_fsk_params(request.args), logger=logger), crypter=AESCrypterBase.from_config(aes_params), logger=logger).start()
 
 
 @app.route('/wav/text/aes256_N-FSK/crypter/form', methods=['GET'])
@@ -358,7 +364,12 @@ def main() -> None:
     parser.add_argument("-d", "--debug", default=True, help="enable debug mode(default=%(default)s)")
     args = parser.parse_args()
 
+    global _PRIVATE_KEY
+    _PRIVATE_KEY = args.key
+
     _init_global_cache_at_boot(args.key)
+    if core := _get_core():
+        app.config['MAX_CONTENT_LENGTH'] = core.private_data.max_upload_content_bytes
     app.run(host='0.0.0.0', port=args.port, debug=True, use_reloader=True)
 
 

@@ -1,5 +1,4 @@
 import threading
-import uuid
 import inspect
 from src.log.loggers import EndpointLogger
 from typing import Callable, Dict, Optional
@@ -11,7 +10,6 @@ from src.core.structs import with_mutex
 
 class StreamsStorage:
     def __init__(self, clear_interval: timedelta, stream_lifetime: timedelta, logger: EndpointLogger):
-        self._storage_id: str = uuid.uuid4().hex
         self._logger = logger
         self._clear_interval: float = clear_interval.total_seconds()
         self._stream_lifetime: timedelta = stream_lifetime
@@ -22,15 +20,12 @@ class StreamsStorage:
 
     @property
     def streams_count(self) -> int:
-        return len(self._streams_storage)
+        with self._mutex:
+            return len(self._streams_storage)
 
     @property
     def mutex(self) -> threading.Lock:
         return self._mutex
-
-    @property
-    def storage_uuid(self) -> str:
-        return self._storage_id
 
     @property
     def is_running(self) -> bool:
@@ -38,7 +33,7 @@ class StreamsStorage:
 
     @with_mutex("mutex")
     def clear_by_dt(self, dt: timedelta = timedelta(seconds=3)) -> None:
-        self.___cleaner(dt)
+        self.__cleaner(dt)
 
     @with_mutex("mutex")
     def clear_by_filter(self, filter_func: Callable[[AsyncAudioStream], bool]) -> None:
@@ -66,18 +61,18 @@ class StreamsStorage:
     def get_stream(self, session_uuid: str) -> Optional[AsyncAudioStream]:
         if stream := self._streams_storage.get(session_uuid):
             if stream.is_deprecated(self._stream_lifetime):
-                del self._streams_storage[stream.stream_uuid]
+                del self._streams_storage[session_uuid]
             else:
                 return stream
 
     @with_mutex("mutex")
-    def add_stream(self, session_uuid: str, session: AsyncAudioStream, owerwrite: bool = True) -> None:
-        if not owerwrite:
+    def add_stream(self, session_uuid: str, session: AsyncAudioStream, overwrite: bool = True) -> None:
+        if not overwrite:
             if exists := self._streams_storage.get(session_uuid):
                 raise ValueError(f"Stream with uuid: {session_uuid} already exists in storage!")
         self._streams_storage[session_uuid] = session
 
-    def ___cleaner(self, dt: timedelta = None) -> None:
+    def __cleaner(self, dt: timedelta = None) -> None:
         real_lt: timedelta = dt if dt else self._stream_lifetime
         for key in list(self._streams_storage.keys()):
             self._logger.debug(f"{key} -> sg {inspect.getgeneratorstate(self._streams_storage[key].sample_gen)}, running: {self._streams_storage[key].status}")
@@ -88,4 +83,4 @@ class StreamsStorage:
     def __clear_worker(self) -> None:
         while not self._stop_event.wait(self._clear_interval):
             with self._mutex:
-                self.___cleaner()
+                self.__cleaner()

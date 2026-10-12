@@ -5,6 +5,7 @@ import math
 import random
 import struct
 import io
+import time
 import wave
 
 from itertools import count
@@ -32,14 +33,14 @@ class AsyncAudioStreamStatus(Enum):
 class AsyncAudioStreamBase:
     def __init__(self, logger: EndpointLogger, stream_uuid: str = "", **kwargs):
         self.stream_uuid: str = stream_uuid
-        self.created_at: datetime = logger.now()
+        self.created_at: datetime = datetime.time.monotonic()
         self._logger = logger
 
     def to_json(self) -> Dict[str, Any]:
         return {"stream_uuid": self.stream_uuid, "created_at": self.created_at}
 
     def is_deprecated(self, secs: timedelta) -> bool:
-        return (self._logger.now() - self.created_at) > secs
+        return (time.monotonic() - self.created_at) > secs.total_seconds()
 
 
 class AsyncAudioStream(AsyncAudioStreamBase):

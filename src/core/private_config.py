@@ -62,6 +62,8 @@ class EndpointPrivateConfig:
     version: EndpointVersion = EndpointVersion(0,0,0,0)
     release_type: str = "PRE_INIT"
     http_session_lifetime: int = 10
+    max_upload_content_bytes: int = 36 * 1024 * 1024
+    max_concurrent_streams: int = 7
     aes256_key: str = ""
     http_access_key: str = ""
     timezone: str = "Asia/Tokyo"

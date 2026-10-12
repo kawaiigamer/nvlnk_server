@@ -1,14 +1,23 @@
 import json
 from datetime import datetime
 from dataclasses import dataclass, field
-from typing import Union, List, Dict, Self, Optional, Any, Type
+from typing import Union, List, Dict, Self, Optional, Any, Type, Tuple
 
 import numpy as np
 
 from src.log.loggers import MiddlewareLogger
 from src.core.private_config import load_private_data, EndpointPrivateConfig
+from src.wav.audio import WavAudioNFSK
 
+_PRIVATE_KEY: str = None
 _PRIVATE_DATA: EndpointPrivateConfig = load_private_data(None)
+
+
+def global_get_private_data(key: str) -> EndpointPrivateConfig:
+    global _PRIVATE_DATA
+    if not _PRIVATE_DATA or _PRIVATE_DATA.release_type == "PRE_INIT":
+        _PRIVATE_DATA = load_private_data(_PRIVATE_KEY if not key else key)
+    return _PRIVATE_DATA
 
 
 @dataclass
@@ -85,7 +94,9 @@ class MainEndpointDescription(OrderedDataclass):
     release_type: str
     started_at: datetime
     timezone: str
-    tox_id: str
+    max_concurrent_streams: int
+    wav_limits: Dict[str, Union[int, float, Tuple]]
+    tox_profile_name: str
     meshtastic_nodes_names: List[str]
     meshcore_nodes_names: List[str]
     services: Dict[str, Union[RoutePart, EndpointPart]]
@@ -103,7 +114,8 @@ class MainEndpointDescription(OrderedDataclass):
 
     def to_dict(self) -> Dict[str, Any]:
         return {"name": self.name, "status": self.status, "release_type": self.release_type, "started_at": self.started_time, "timezone": self.timezone,
-                "running_time": self.running_time, "tox_id": self.tox_id,
+                "max_concurrent_streams": self.max_concurrent_streams, "wav_limits": self.wav_limits,
+                "running_time": self.running_time, "tox_id": self.tox_profile_name,
                 "meshtatic_nodes_names": self.meshtastic_nodes_names,
                 "services": {k: v.to_dict() for k, v in self.services.items()}}
 
@@ -122,7 +134,7 @@ _wav_dynamic_nfsk_params_descr: List[Param] = [Param("dfsk", "dynamic_fsk", "fal
                                                Param("dsm_min", "dynamic_smoothing_min", 1.0, "Min level for dynamic FSK"), Param("dsm_max", "dynamic_smoothing_max", 3.0, "Max level for dynamic FSK"),
                                                ]
 _wav_nfsk_decrypt_errors_descr: List[Param] = [Param("errors", "errors_mode", "ignore", "'ignore' - ignores any error, 'break' - interrupts decrypt process, 'skip' - skipping error frame, continuing to next frame")]
-_aes_params_descr: List[Param] = [Param("key", "key_str", _PRIVATE_DATA.aes256_key, "256 bits key"), Param("mode", "mode", "CBC", "AES256 mode(GCM or CBC)"),
+_aes_params_descr: List[Param] = [Param("key", "key", global_get_private_data(None).aes256_key.encode(), "256 bits key"), Param("mode", "mode", "CBC", "AES256 mode(GCM or CBC)"),
                                   Param("iv", "iv_length", 16, "Initialization Vector (IV) length in bytes"), Param("tag", "tag", "notag", "Authentication Tag(only for GCM mode)")
                                   ]
 _aes_text_params_descr: List[Param] = [Param("text", "text", "", "Plain text for encryption")]
@@ -208,7 +220,9 @@ _endpoints: Dict[str, Union[RoutePart, EndpointPart]] = {
 
 _main = MainEndpointDescription(name="yue-ws-main", status="online", release_type=_PRIVATE_DATA.release_type,
                                 started_at=MiddlewareLogger.now_with_timezone(_PRIVATE_DATA.timezone), timezone=_PRIVATE_DATA.timezone,
-                                tox_id=_PRIVATE_DATA.tox_config.profile_file_name if _PRIVATE_DATA.tox_config else "",
+                                max_concurrent_streams=global_get_private_data(None).max_concurrent_streams,
+                                wav_limits = WavAudioNFSK.get_limits(),
+                                tox_profile_name=_PRIVATE_DATA.tox_config.profile_file_name if _PRIVATE_DATA.tox_config else "",
                                 meshtastic_nodes_names=[node_key for node_key in _PRIVATE_DATA.meshtastic_nodes.keys()],
                                 meshcore_nodes_names=[],
                                 services=_endpoints)
@@ -236,10 +250,3 @@ def global_get_system_info(additional_data=None) -> str:
     if additional_data is None:
         additional_data = {}
     return json.dumps({"main": _main, **additional_data}, cls=__DataclassEncoder, indent=4, ensure_ascii=False)
-
-
-def global_get_private_data(key: str) -> EndpointPrivateConfig:
-    global _PRIVATE_DATA
-    if _PRIVATE_DATA.release_type == "PRE_INIT":
-        _PRIVATE_DATA = load_private_data(key)
-    return _PRIVATE_DATA
